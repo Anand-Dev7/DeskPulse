@@ -12,7 +12,7 @@
 
 namespace {
 
-const char* kApSsid = "DeskPulse-Setup";
+const char* kApSsid = "DeskBuddy-Setup";
 const char* kApPass = "12345678";
 const byte kDnsPort = 53;
 
@@ -25,26 +25,33 @@ const char kPage[] PROGMEM = R"rawliteral(
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>DeskPulse Setup</title>
+<title>DeskBuddy Setup</title>
 <style>
 body { font-family: 'Segoe UI', sans-serif; background:#0a111f; color:#e8f0ff; margin:0; padding:24px; }
-.card { max-width:520px; margin:auto; background:#121f36; border:1px solid #26416d; border-radius:14px; padding:20px; }
+.card { max-width:600px; margin:auto; background:#121f36; border:1px solid #26416d; border-radius:14px; padding:20px; }
 h1 { margin:0 0 12px; color:#63d6ff; font-size:22px; }
+h2 { margin:20px 0 12px; color:#63d6ff; font-size:16px; border-top:1px solid #26416d; padding-top:16px; }
 small { color:#98b5db; }
 label { display:block; margin-top:12px; font-size:14px; color:#a9c3e8; }
-input, select { width:100%; margin-top:6px; padding:10px; border-radius:8px; border:1px solid #355a8f; background:#0f1b31; color:#e8f0ff; box-sizing:border-box; }
+input[type="text"], input[type="password"], select, input[type="number"] { width:100%; margin-top:6px; padding:10px; border-radius:8px; border:1px solid #355a8f; background:#0f1b31; color:#e8f0ff; box-sizing:border-box; }
+input[type="file"] { margin-top:6px; color:#e8f0ff; }
+.preview { width:100px; height:100px; margin-top:8px; border:1px solid #26416d; border-radius:8px; background:#0f1b31; overflow:hidden; }
+.preview img { width:100%; height:100%; object-fit:cover; }
 button { width:100%; margin-top:16px; padding:12px; border:none; border-radius:8px; background:#38bdf8; color:#041525; font-weight:700; cursor:pointer; }
 button.secondary { margin-top:10px; background:#2c4d78; color:#d6e7ff; }
 .row { display:flex; gap:8px; }
 .row > * { flex:1; }
 .status { margin-top:14px; font-size:12px; color:#98b5db; }
+.photo-section { margin:20px 0; padding:16px; background:#0f1b31; border-radius:8px; border:1px solid #355a8f; }
 </style>
 </head>
 <body>
 <div class="card">
-<h1>DeskPulse Configuration</h1>
-<small>Connect device to your WiFi and weather settings.</small>
-<form action="/save" method="POST">
+<h1>DeskBuddy Configuration</h1>
+<small>Configure WiFi, weather, and photo booth settings.</small>
+<form id="setupForm" action="/save" method="POST">
+
+<h2>WiFi & Location</h2>
 <label>WiFi SSID</label>
 <select id="ssidSelect" onchange="useSelectedSsid()"><option value="">-- Scan nearby WiFi --</option></select>
 <input id="ssidInput" name="ssid" required placeholder="WiFi SSID" />
@@ -64,19 +71,108 @@ button.secondary { margin-top:10px; background:#2c4d78; color:#d6e7ff; }
 </div>
 
 <label>Device Name</label>
-<input name="name" placeholder="DeskPulse" />
+<input name="name" placeholder="DeskBuddy" />
 
-<button type="submit">Save and Connect</button>
+<h2>Photo Booth</h2>
+<small>Upload up to 2 photos for the slideshow (JPEG/PNG, max 200x200px)</small>
+
+<div class="photo-section">
+<label>Photo 1</label>
+<input type="file" id="file1" accept="image/*" />
+<div id="preview1" class="preview"></div>
+<input type="hidden" id="photo1Data" name="photo1Data" />
+</div>
+
+<div class="photo-section">
+<label>Photo 2</label>
+<input type="file" id="file2" accept="image/*" />
+<div id="preview2" class="preview"></div>
+<input type="hidden" id="photo2Data" name="photo2Data" />
+</div>
+
+<label>Slideshow Interval (seconds)</label>
+<input type="number" name="interval" min="1" max="60" value="3" placeholder="3" />
+<small>Time between photo transitions (1-60 seconds)</small>
+
+<button type="submit">Save Configuration</button>
 </form>
 <button class="secondary" onclick="scanWifi()">Refresh WiFi List</button>
-<div class="status">Connect to AP: DeskPulse-Setup | Password: 12345678</div>
+<div class="status">Connect to AP: DeskBuddy-Setup | Password: 12345678</div>
 </div>
+
 <script>
 function useSelectedSsid(){
   const sel=document.getElementById('ssidSelect');
   const inp=document.getElementById('ssidInput');
   if(sel && inp && sel.value){ inp.value = sel.value; }
 }
+
+function previewImage(fileInput, previewId) {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const preview = document.getElementById(previewId);
+    preview.innerHTML = '<img src="' + e.target.result + '" />';
+  };
+  reader.readAsDataURL(file);
+}
+
+function fileToBase64(file, callback) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const base64 = e.target.result.split(',')[1];
+    callback(base64);
+  };
+  if (file) reader.readAsDataURL(file);
+}
+
+document.getElementById('file1').addEventListener('change', function() {
+  previewImage(this, 'preview1');
+});
+
+document.getElementById('file2').addEventListener('change', function() {
+  previewImage(this, 'preview2');
+});
+
+document.getElementById('setupForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  // Convert files to base64 before submission
+  const file1 = document.getElementById('file1').files[0];
+  const file2 = document.getElementById('file2').files[0];
+  
+  let completed = 0;
+  
+  if (file1) {
+    fileToBase64(file1, function(base64) {
+      document.getElementById('photo1Data').value = base64;
+      completed++;
+      if (completed === (file1 ? 1 : 0) + (file2 ? 1 : 0)) {
+        document.getElementById('setupForm').submit();
+      }
+    });
+  } else {
+    completed++;
+  }
+  
+  if (file2) {
+    fileToBase64(file2, function(base64) {
+      document.getElementById('photo2Data').value = base64;
+      completed++;
+      if (completed === (file1 ? 1 : 0) + (file2 ? 1 : 0)) {
+        document.getElementById('setupForm').submit();
+      }
+    });
+  } else {
+    completed++;
+  }
+  
+  if (!file1 && !file2) {
+    document.getElementById('setupForm').submit();
+  }
+});
+
 async function scanWifi(){
   const sel=document.getElementById('ssidSelect');
   sel.innerHTML='<option value="">-- Scanning... --</option>';
@@ -114,13 +210,14 @@ void drawPortalHint(Adafruit_ST7789& tft) {
     tft.fillScreen(COLOR_BLACK);
     tft.setTextColor(COLOR_CYAN);
     tft.setFont(&FreeSansBold9pt7b);
-    tft.setCursor(18, 34);
-    tft.print("DeskPulse Setup");
+    tft.setTextSize(1);
+    tft.setCursor(40, 34);
+    tft.print("DeskBuddy Setup");
 
     tft.setTextColor(COLOR_WHITE);
     tft.setFont(&FreeSans9pt7b);
     tft.setCursor(10, 76);
-    tft.print("DeskPulse-Setup");
+    tft.print("DeskBuddy-Setup");
     tft.setCursor(10, 104);
     tft.print("Pass: 12345678");
     tft.setCursor(10, 132);
@@ -169,17 +266,38 @@ void SetupPortal::begin() {
         String city = gServer.arg("city");
         String country = gServer.arg("country");
         String name = gServer.arg("name");
+        String intervalStr = gServer.arg("interval");
+        String photo1Base64 = gServer.arg("photo1Data");
+        String photo2Base64 = gServer.arg("photo2Data");
 
         if (!city.isEmpty()) Config::city = city;
         if (!country.isEmpty()) Config::countryCode = country;
         Config::refreshTimezoneFromLocation();
         if (!name.isEmpty()) Config::deviceName = name;
+        
+        // Parse slideshow interval (convert seconds to milliseconds)
+        if (!intervalStr.isEmpty()) {
+            int seconds = intervalStr.toInt();
+            if (seconds >= 1 && seconds <= 60) {
+                Config::photoBoothInterval = seconds * 1000;
+            }
+        }
 
+        // Store photo data (base64 strings sent from client)
+        if (!photo1Base64.isEmpty()) {
+            Config::photoData1 = photo1Base64;
+            Serial.println("Photo 1 saved: " + String(Config::photoData1.length()) + " bytes");
+        }
+        if (!photo2Base64.isEmpty()) {
+            Config::photoData2 = photo2Base64;
+            Serial.println("Photo 2 saved: " + String(Config::photoData2.length()) + " bytes");
+        }
+        
         Config::save();
 
         gServer.send(200, "text/html",
             "<html><body style='font-family:sans-serif;background:#0a111f;color:#e8f0ff;text-align:center;padding-top:60px;'>"
-            "<h2>Saved!</h2><p>Device is connecting...</p></body></html>");
+            "<h2>Configuration Saved!</h2><p>Device is connecting...</p></body></html>");
 
         gInstance->completed = true;
     });

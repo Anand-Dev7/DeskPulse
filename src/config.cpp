@@ -10,9 +10,13 @@ String apiKey = "";
 String timezone = "";
 String ntpServer = "";
 String deviceName = "";
+String photoData1 = "";
+String photoData2 = "";
+unsigned long photoBoothInterval = 3000;  // Default 3 seconds
+bool setupCompleted = false;
 
 static Preferences prefs;
-static const char* PREF_NAMESPACE = "deskpulse";
+static const char* PREF_NAMESPACE = "DeskBuddy";
 
 namespace {
 
@@ -43,6 +47,10 @@ void load() {
     countryCode = prefs.getString("country", DEFAULT_COUNTRY);
     timezone = prefs.getString("tz", "");
     deviceName = prefs.getString("name", DEFAULT_DEVICE_NAME);
+    photoData1 = prefs.getString("photo1", "");
+    photoData2 = prefs.getString("photo2", "");
+    photoBoothInterval = prefs.getULong("pbInterval", 3000);
+    setupCompleted = prefs.getBool("setupDone", false);
     prefs.end();
 
     apiKey = DEFAULT_API_KEY;
@@ -65,6 +73,10 @@ void save() {
     prefs.putString("country", countryCode);
     prefs.putString("tz", timezone);
     prefs.putString("name", deviceName);
+    prefs.putString("photo1", photoData1);
+    prefs.putString("photo2", photoData2);
+    prefs.putULong("pbInterval", photoBoothInterval);
+    prefs.putBool("setupDone", setupCompleted);
     prefs.end();
 }
 
@@ -118,6 +130,15 @@ String inferTimezone(const String& cityName, const String& country) {
 
 void refreshTimezoneFromLocation() {
     timezone = inferTimezone(city, countryCode);
+}
+
+bool hasPhotos() {
+    return !photoData1.isEmpty() || !photoData2.isEmpty();
+}
+
+void markSetupCompleted() {
+    setupCompleted = true;
+    save();
 }
 
 }  // namespace Config

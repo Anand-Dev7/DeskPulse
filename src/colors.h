@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-// ===== Unified Color Palette for DeskPulse =====
+// ===== Unified Color Palette for DeskBuddy =====
 // All UI components should use these constants instead of
 // raw hex values or ST77XX_* library constants.
 

@@ -9,6 +9,7 @@
 #include "config.h"
 #include "setup_portal.h"
 #include "welcome.h"
+#include "photobooth.h"
 
 // ===== ESP32-C3 Super Mini pins =====
 #define TFT_CS   -1
@@ -26,12 +27,14 @@ const unsigned long FORECAST_RETRY_INTERVAL = 15000;
 enum ViewMode {
   VIEW_CLOCK = 0,
   VIEW_WEATHER,
-  VIEW_ABOUT
+  VIEW_ABOUT,
+  VIEW_PHOTOBOOTH
 };
 
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 DeskPulseClock gmClock(&tft);
 WeatherAPI weatherApi("", "", "");
+PhotoBooth photoBooth(&tft);
 
 unsigned long lastWeatherUpdate = 0;
 unsigned long lastForecastUpdate = 0;
@@ -146,7 +149,7 @@ void reverseBrightnessLevel() {
 void setup() {
   Serial.begin(115200);
   delay(2000);
-  Serial.println("=== DeskPulse Clock ===");
+  Serial.println("=== DeskBuddy Clock ===");
 
   pinMode(TOUCH_PIN, INPUT);
   menuInit();
@@ -155,13 +158,18 @@ void setup() {
   initPanelBrightnessControl(tft);
   initBrightnessControl(TFT_BL, false);
   applyBrightnessLevel(brightnessLevel);
-  WelcomeUI::showBootAnimation(tft, "DeskPulse");
+  WelcomeUI::showBootAnimation(tft, "DeskBuddy");
 
   Config::init();
-  if (!Config::hasWifiConfig() || !Config::hasLocationConfig()) {
+  
+  // Only show setup portal if setup hasn't been completed
+  bool needsSetup = !Config::setupCompleted || !Config::hasWifiConfig() || !Config::hasLocationConfig();
+  
+  if (needsSetup) {
     WelcomeUI::showWifiStatus(tft, "No WiFi Saved", "Starting setup AP", "192.168.4.1");
     startSetupPortalUntilSaved();
     Config::load();
+    Config::markSetupCompleted();  // Mark as completed after first setup
   }
 
   while (!connectConfiguredWiFi()) {
@@ -176,6 +184,20 @@ void setup() {
 
   // Get initial weather data
   updateWeather(weatherApi, gmClock);
+  
+  // Get initial forecast data
+  if (WiFi.status() == WL_CONNECTED) {
+    refreshForecastIfNeeded(true);
+  }
+
+  // Initialize photo booth with saved photos and interval
+  PhotoData photo1, photo2;
+  photo1.base64Data = Config::photoData1;
+  photo1.valid = !Config::photoData1.isEmpty();
+  photo2.base64Data = Config::photoData2;
+  photo2.valid = !Config::photoData2.isEmpty();
+  photoBooth.setPhotos(photo1, photo2);
+  photoBooth.setInterval(Config::photoBoothInterval);
 
   // Initialize clock display
   gmClock.begin();
@@ -200,10 +222,13 @@ void loop() {
       forceViewRedraw = true;
       popupNeedsRedraw = true;
     } else if (touchEvent == TOUCH_EVENT_LONG_TAP) {
+      // Long tap: close brightness adjustment and open menu
       brightnessAdjustMode = false;
       brightnessPopupUntil = 0;
-      forceViewRedraw = true;
-      popupNeedsRedraw = true;
+      menuOpen();
+      forceMenuRedraw = true;
+      forceViewRedraw = false;
+      popupNeedsRedraw = false;
     }
 
     if (millis() > brightnessPopupUntil) {
@@ -217,6 +242,11 @@ void loop() {
     if (touchEvent == TOUCH_EVENT_SHORT_TAP) {
       menuOpen();
       forceMenuRedraw = true;
+    } else if (touchEvent == TOUCH_EVENT_LONG_TAP && currentView == VIEW_CLOCK) {
+      // Long tap on clock: open photo booth
+      currentView = VIEW_PHOTOBOOTH;
+      photoBooth.begin();
+      forceViewRedraw = true;
     }
   } else if (!brightnessAdjustMode) {
     if (touchEvent == TOUCH_EVENT_SHORT_TAP) {
@@ -319,6 +349,22 @@ void loop() {
     return;
   }
 
+  if (currentView == VIEW_PHOTOBOOTH) {
+    // Handle touch events in photo booth
+    if (touchEvent == TOUCH_EVENT_SHORT_TAP || touchEvent == TOUCH_EVENT_LONG_TAP) {
+      // Any touch exits photo booth
+      currentView = VIEW_CLOCK;
+      photoBooth.stop();
+      gmClock.begin();
+      forceViewRedraw = true;
+    } else {
+      // Update photo booth slideshow
+      photoBooth.update();
+    }
+    delay(20);
+    return;
+  }
+
   if (currentView == VIEW_WEATHER) {
     if (!weatherDrawn) {
       forceViewRedraw = true;
@@ -334,12 +380,7 @@ void loop() {
       forceViewRedraw = false;
       popupNeedsRedraw = true;
     }
-    if (brightnessAdjustMode || millis() < brightnessPopupUntil) {
-      if (popupNeedsRedraw) {
-        drawBrightnessPopup(tft, brightnessLevel);
-        popupNeedsRedraw = false;
-      }
-    }
+    // No brightness popup on weather view
     delay(20);
     return;
   }
@@ -356,12 +397,7 @@ void loop() {
       forceViewRedraw = false;
       popupNeedsRedraw = true;
     }
-    if (brightnessAdjustMode || millis() < brightnessPopupUntil) {
-      if (popupNeedsRedraw) {
-        drawBrightnessPopup(tft, brightnessLevel);
-        popupNeedsRedraw = false;
-      }
-    }
+    // No brightness popup on about view
     delay(20);
     return;
   }

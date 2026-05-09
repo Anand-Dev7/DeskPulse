@@ -75,7 +75,7 @@ void showWifiStatus(Adafruit_ST7789& display, const String& line1, const String&
 	display.setTextColor(COLOR_BLACK);
 	display.setTextSize(2);
 	display.setCursor(58, 7);
-	display.print("DeskPulse");
+	display.print("DeskBuddy");
 
 	display.setTextColor(COLOR_WHITE);
 	display.setTextSize(2);
