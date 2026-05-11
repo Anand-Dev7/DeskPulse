@@ -1,5 +1,6 @@
 #include "config.h"
 #include <esp_task_wdt.h>
+#include <SPIFFS.h>
 
 namespace Config {
 
@@ -11,8 +12,8 @@ String apiKey = "";
 String timezone = "";
 String ntpServer = "";
 String deviceName = "";
-String photoData1 = "";
-String photoData2 = "";
+// String photoData1 = "";
+// String photoData2 = "";
 unsigned long photoBoothInterval = 3000;  // Default 3 seconds
 bool setupCompleted = false;
 
@@ -34,6 +35,11 @@ bool cityContains(const String& cityName, const char* key) {
     return cityUpper.indexOf(keyUpper) >= 0;
 }
 
+
+// SPIFFS photo file paths (base64 JPEG strings)
+constexpr const char* kPhoto1Path = "/photo1.b64";
+constexpr const char* kPhoto2Path = "/photo2.b64";
+
 }  // namespace
 
 void init() {
@@ -48,8 +54,8 @@ void load() {
     countryCode = prefs.getString("country", DEFAULT_COUNTRY);
     timezone = prefs.getString("tz", "");
     deviceName = prefs.getString("name", DEFAULT_DEVICE_NAME);
-    photoData1 = prefs.getString("photo1", "");
-    photoData2 = prefs.getString("photo2", "");
+    // photoData1 = prefs.getString("photo1", "");
+    // photoData2 = prefs.getString("photo2", "");
     photoBoothInterval = prefs.getULong("pbInterval", 3000);
     setupCompleted = prefs.getBool("setupDone", false);
     prefs.end();
@@ -116,39 +122,31 @@ void load() {
 // }
 
 void save() {
-    refreshTimezoneFromLocation();
+  refreshTimezoneFromLocation();
+  prefs.begin(PREF_NAMESPACE, false);
 
-    prefs.begin(PREF_NAMESPACE, false);
-    
-    // 1. SAVE CRITICAL DATA FIRST
-    prefs.putString("ssid", wifiSsid);
-    prefs.putString("pass", wifiPass);
-    prefs.putString("city", city);
-    prefs.putString("country", countryCode);
-    prefs.putString("tz", timezone);
-    prefs.putString("name", deviceName);
-    prefs.putULong("pbInterval", photoBoothInterval);
-    
-    // 2. SAVE THE SETUP FLAG NOW 
-    // Even if photos fail, the device will know setup is done!
-    prefs.putBool("setupDone", true); 
-    
+  auto kickWdt = []() {
     esp_task_wdt_reset();
-    delay(100);
+    delay(20);
+  };
 
-    // 3. TRY TO SAVE PHOTOS (This might still fail if images are too large)
-    if (!photoData1.isEmpty() && photoData1.length() < 4000) {
-        prefs.putString("photo1", photoData1);
-    } else if (photoData1.length() >= 4000) {
-        Serial.println("ERROR: Photo 1 too large for NVS!");
-    }
-    
-    if (!photoData2.isEmpty() && photoData2.length() < 4000) {
-        prefs.putString("photo2", photoData2);
-    }
+  // Save critical config fields only (NO photos in NVS!)
+  prefs.putString("ssid", wifiSsid); kickWdt();
+  prefs.putString("pass", wifiPass); kickWdt();
+  prefs.putString("city", city); kickWdt();
+  prefs.putString("country", countryCode); kickWdt();
+  prefs.putString("tz", timezone); kickWdt();
+  prefs.putString("name", deviceName); kickWdt();
+  prefs.putULong("pbInterval", photoBoothInterval); kickWdt();
+  // Setup done flag
+  prefs.putBool("setupDone", true); kickWdt();
+  setupCompleted = true;
 
-    prefs.end();
-    Serial.println("Configuration Saved!");
+  prefs.end();
+  kickWdt();
+
+  
+  Serial.println("Configuration Saved! (Photos stored in SPIFFS)");
 }
 
 bool hasWifiConfig() {
@@ -204,7 +202,12 @@ void refreshTimezoneFromLocation() {
 }
 
 bool hasPhotos() {
-    return !photoData1.isEmpty() || !photoData2.isEmpty();
+    
+if (!SPIFFS.begin(false)) {
+    return false;
+  }
+  return SPIFFS.exists(kPhoto1Path) || SPIFFS.exists(kPhoto2Path);
+
 }
 
 void markSetupCompleted() {

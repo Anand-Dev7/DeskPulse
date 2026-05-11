@@ -246,6 +246,9 @@ void DeskPulseClock::drawWeatherIcon(int x, int y, String icon) {
 
 void DeskPulseClock::drawTime() {
     if (clockStyle == CLOCK_STYLE_SIMPLE) {
+        // Clear the whole time band before drawing. U8g2 text is transparent,
+        // so old digits can otherwise remain and overlap on minute changes.
+        tft->fillRect(0, 18, 240, 74, COLOR_BG);
         int y = 74;
         u8g2Fonts.setFontMode(1);
         u8g2Fonts.setFontDirection(0);
@@ -308,6 +311,8 @@ void DeskPulseClock::drawSeconds() {
 
 void DeskPulseClock::drawDate() {
     if (clockStyle == CLOCK_STYLE_SIMPLE) {
+        // Clear date/day band so old text never overlaps after date/style changes.
+        tft->fillRect(0, 132, 240, 72, COLOR_BG);
         const char* weekdayStr = getWeekdayName(this->weekday);
         int dayBadgeW = 44;
         int dayBadgeX = (240 - dayBadgeW) / 2;
@@ -404,6 +409,10 @@ void DeskPulseClock::drawWeatherInfo() {
 void DeskPulseClock::simpleClock(bool forceRedraw) {
     if (forceRedraw) {
         tft->fillScreen(COLOR_BG);
+        // Force all simple-clock regions to redraw cleanly after style/view changes.
+        prevHour = -1;
+        prevMinute = -1;
+        prevDay = -1;
     }
     if (forceRedraw || hour != prevHour || minute != prevMinute) {
         drawTime();

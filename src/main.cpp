@@ -11,6 +11,8 @@
 #include "setup_portal.h"
 #include "welcome.h"
 #include "photobooth.h"
+#include <SPIFFS.H>
+#include <esp_system.h>
 
 // ===== ESP32-C3 Super Mini pins =====
 #define TFT_CS   -1
@@ -56,13 +58,59 @@ ForecastDay forecastDays[3];
 bool forecastValid = false;
 bool brightnessAdjustMode = false;
 
+// void reloadPhotosFromConfig() {
+//   // Reload photo data from config into PhotoBooth
+//   PhotoData photo1, photo2;
+//   photo1.base64Data = Config::photoData1;
+//   photo1.valid = !Config::photoData1.isEmpty();
+//   photo2.base64Data = Config::photoData2;
+//   photo2.valid = !Config::photoData2.isEmpty();
+//   photoBooth.setPhotos(photo1, photo2);
+//   photoBooth.setInterval(Config::photoBoothInterval);
+// }
+
 void reloadPhotosFromConfig() {
-  // Reload photo data from config into PhotoBooth
+  // PhotoData photo1, photo2;
+  // Reload photo data from SPIFFS into PhotoBooth (photos are NOT stored in NVS)
+  // File f1 = SPIFFS.open("/photo1.b64", FILE_READ);
+  // if (f1) {
+  //   photo1.base64Data = f1.readString();
+  //   photo1.valid = true;
+  //   f1.close();
+  // } else {
+  //   photo1.valid = false;
+  // }
+
+
+  
   PhotoData photo1, photo2;
-  photo1.base64Data = Config::photoData1;
-  photo1.valid = !Config::photoData1.isEmpty();
-  photo2.base64Data = Config::photoData2;
-  photo2.valid = !Config::photoData2.isEmpty();
+  photo1.valid = false;
+  photo2.valid = false;
+
+  // SPIFFS is mounted in setup() via SPIFFS.begin(true)
+
+  
+if (!SPIFFS.begin(false)) {
+    Serial.println("SPIFFS not mounted; no photos loaded");
+  } else {
+    File f1 = SPIFFS.open("/photo1.b64", FILE_READ);
+    if (f1) {
+      photo1.base64Data = f1.readString();
+      photo1.valid = !photo1.base64Data.isEmpty();
+      f1.close();
+      Serial.println("Loaded photo1 from SPIFFS: " + String(photo1.base64Data.length()) + " chars");
+    }
+
+    File f2 = SPIFFS.open("/photo2.b64", FILE_READ);
+    if (f2) {
+      photo2.base64Data = f2.readString();
+      photo2.valid = !photo2.base64Data.isEmpty();
+      f2.close();
+      Serial.println("Loaded photo2 from SPIFFS: " + String(photo2.base64Data.length()) + " chars");
+    }
+  }
+
+
   photoBooth.setPhotos(photo1, photo2);
   photoBooth.setInterval(Config::photoBoothInterval);
 }
@@ -71,33 +119,33 @@ void startSetupPortalUntilSaved() {
   SetupPortal portal(tft);
   portal.begin();
   unsigned long completedTime = 0;
-  const unsigned long COMPLETION_WAIT_MS = 5000;  // Wait 5 seconds for browser to fully process
+  const unsigned long COMPLETION_WAIT_MS = 2500;  // Give browser time to receive /save response
   
+  Serial.println("Setup portal started; waiting for explicit Save button...");
+
   while (true) {
     portal.loop();
-    
-    // Feed the watchdog to prevent timeout
     esp_task_wdt_reset();
-    
+
+    // IMPORTANT: No idle timeout here. The portal must stay open until /save succeeds.
     if (portal.isCompleted() && completedTime == 0) {
-      // Mark the time when completion was first detected
       completedTime = millis();
-      Serial.println("Configuration saved, waiting before closing portal...");
+      Serial.println("Portal reports saved; closing setup portal shortly...");
     }
-    
+
     if (completedTime > 0 && (millis() - completedTime >= COMPLETION_WAIT_MS)) {
-      // 5 seconds have passed, safe to close now
       break;
     }
-    
+
     delay(10);
   }
   
-  // Gentle shutdown with minimal delay
-  delay(500);
   portal.stop();
+  delay(300);
+  WiFi.mode(WIFI_STA);
+  Serial.println("Setup portal stopped after explicit save; STA mode restored");
   
-  // Reload photos from config after portal closes
+  Config::load();
   reloadPhotosFromConfig();
 }
 
@@ -192,10 +240,24 @@ void reverseBrightnessLevel() {
   brightnessPopupUntil = millis() + BRIGHTNESS_POPUP_MS;
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(2000);
-  Serial.println("=== DeskBuddy Clock ===");
+  void setup() {
+    Serial.begin(115200);
+    delay(2000);
+    
+    esp_reset_reason_t r = esp_reset_reason();
+    Serial.printf("Reset reason = %d\n", (int)r);
+
+    Serial.println("=== DeskBuddy Clock ===");
+
+    // Mount SPIFFS for photo storage (photos are stored here, not in NVS
+    if (!SPIFFS.begin(true)) {
+      Serial.println("SPIFFS mount failed");
+    }else {
+      
+    Serial.println("SPIFFS mounted");
+
+  } 
+
 
   pinMode(TOUCH_PIN, INPUT);
   menuInit();
@@ -237,13 +299,14 @@ void setup() {
   }
 
   // Initialize photo booth with saved photos and interval
-  PhotoData photo1, photo2;
-  photo1.base64Data = Config::photoData1;
-  photo1.valid = !Config::photoData1.isEmpty();
-  photo2.base64Data = Config::photoData2;
-  photo2.valid = !Config::photoData2.isEmpty();
-  photoBooth.setPhotos(photo1, photo2);
-  photoBooth.setInterval(Config::photoBoothInterval);
+  reloadPhotosFromConfig();
+  // PhotoData photo1, photo2;
+  // photo1.base64Data = Config::photoData1;
+  // photo1.valid = !Config::photoData1.isEmpty();
+  // photo2.base64Data = Config::photoData2;
+  // photo2.valid = !Config::photoData2.isEmpty();
+  // photoBooth.setPhotos(photo1, photo2);
+  // photoBooth.setInterval(Config::photoBoothInterval);
 
   // Initialize clock display
   gmClock.begin();
@@ -261,6 +324,7 @@ void loop() {
   static bool popupNeedsRedraw = true;
 
   struct tm timeinfo;
+  #if 0
 
   // 1. CUSTOM MANUAL TOUCH LOGIC (PhotoBooth 3-sec toggle)
   int touchValue = digitalRead(TOUCH_PIN); 
@@ -288,6 +352,7 @@ void loop() {
     touchStartTime = 0;
     lockToggle = false; 
   }
+  #endif
 
   // 2. STANDARD TOUCH EVENT PROCESSING (Read touches FIRST)
   TouchEvent touchEvent = readTouchEvent(TOUCH_PIN, false, TOUCH_LONG_PRESS_MS);
@@ -327,9 +392,18 @@ void loop() {
       menuOpen();
       forceMenuRedraw = true;
     } else if (touchEvent == TOUCH_EVENT_LONG_TAP && currentView == VIEW_CLOCK) {
-      currentView = VIEW_PHOTOBOOTH;
-      photoBooth.begin();
-      forceViewRedraw = true;
+      // currentView = VIEW_PHOTOBOOTH;
+      // photoBooth.begin();
+      // forceViewRedraw = true;
+      
+      static unsigned long lastEnter = 0;
+      if (millis() - lastEnter > 1500) {   // ignore repeated triggers for 1.5s
+        lastEnter = millis();
+        currentView = VIEW_PHOTOBOOTH;
+        photoBooth.begin();
+        forceViewRedraw = true;
+      }
+
     }
   } 
   else {

@@ -20,6 +20,9 @@
 #include <Fonts/FreeSansBold9pt7b.h>
 #include <mbedtls/base64.h>   // built into ESP32 Arduino core
 #include <JPEGDEC.h>          // install: Arduino Library Manager → "JPEGDEC"
+#include <esp_task_wdt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 // ---------------------------------------------------------------------------
 // JPEGDEC requires a plain C callback, so we keep a module-level pointer to
@@ -30,12 +33,23 @@ static Adafruit_ST7789* _jpegTft = nullptr;
 
 static int jpegDrawCallback(JPEGDRAW* pDraw) {
     if (!_jpegTft) return 0;
+
+    // JPEG rendering can take long enough to trip the ESP32-C3 task WDT.
+    // Feed/yield from every MCU row callback so entering PhotoBooth does not reset.
+    esp_task_wdt_reset();
+    delay(0);
+
+    int drawX = pDraw->x;
+    int drawY = pDraw->y;
+    int drawW = pDraw->iWidth;
+    int drawH = pDraw->iHeight;
+    if (drawX >= 240 || drawY >= 240) return 1;
+    if (drawX + drawW > 240) drawW = 240 - drawX;
+    if (drawY + drawH > 240) drawH = 240 - drawY;
+    if (drawW <= 0 || drawH <= 0) return 1;
+
     // pDraw->pPixels is already RGB565 big-endian, which ST7789 expects.
-    _jpegTft->drawRGBBitmap(
-        pDraw->x, pDraw->y,
-        pDraw->pPixels,
-        pDraw->iWidth, pDraw->iHeight
-    );
+    _jpegTft->drawRGBBitmap(drawX, drawY, pDraw->pPixels, drawW, drawH);
     return 1;  // non-zero = keep decoding
 }
 
@@ -63,8 +77,11 @@ void PhotoBooth::begin() {
     lastPhotoTime     = millis();
     tft->fillScreen(COLOR_BLACK);
 
-    if (photos[0].valid || photos[1].valid) {
+    if (photos[0].valid) {
         drawPhoto(0);
+    } else if (photos[1].valid) {
+        currentPhotoIndex = 1;
+        drawPhoto(1);
     } else {
         drawPlaceholder("No photos uploaded.\n\nGo to menu >\nReconfigure WiFi\nto upload photos.");
     }
@@ -113,6 +130,10 @@ void PhotoBooth::setInterval(unsigned long intervalMs) {
 // ===========================================================================
 void PhotoBooth::drawPhoto(int index) {
 
+    Serial.printf("[PhotoBooth] drawPhoto(%d), stack HWM=%u words, heap=%u\n",
+                  index, (unsigned)uxTaskGetStackHighWaterMark(NULL),
+                  (unsigned)ESP.getFreeHeap());
+
     // ── Guard: valid index and non-empty data ───────────────────────────────
     if (index < 0 || index >= 2
             || !photos[index].valid
@@ -151,6 +172,8 @@ void PhotoBooth::drawPhoto(int index) {
         imgBuf, bufSize, &decodedLen,
         (const unsigned char*)b64.c_str(), inputLen
     );
+    esp_task_wdt_reset();
+    delay(0);
 
     if (ret != 0 || decodedLen == 0) {
         free(imgBuf);
@@ -168,19 +191,35 @@ void PhotoBooth::drawPhoto(int index) {
     // ── Step 3: JPEG decode → ST7789 ────────────────────────────────────────
     tft->fillScreen(COLOR_BLACK);
 
-    JPEGDEC jpeg;
+    // JPEGDEC is large enough to overflow the default ESP32-C3 loopTask stack
+    // when allocated as a local variable. Keep it on the heap instead.
+    JPEGDEC* jpeg = new JPEGDEC();
+    if (!jpeg) {
+        free(imgBuf);
+        drawPlaceholder("Out of memory\nJPEG decoder");
+        return;
+    }
+
     _jpegTft = tft;
 
-    if (!jpeg.openRAM(imgBuf, (int)decodedLen, jpegDrawCallback)) {
+    if (!jpeg->openRAM(imgBuf, (int)decodedLen, jpegDrawCallback)) {
+        _jpegTft = nullptr;
+        delete jpeg;
         free(imgBuf);
         drawPlaceholder("Not a valid JPEG.\nUpload a JPEG image.");
         return;
     }
 
-    jpeg.setPixelType(RGB565_BIG_ENDIAN);   // matches ST7789 native format
+    // Adafruit_GFX::drawRGBBitmap expects native uint16_t RGB565 values.
+    // On ESP32-C3, RGB565_BIG_ENDIAN corrupts colors/renders as rainbow noise.
+    jpeg->setPixelType(RGB565_LITTLE_ENDIAN);
 
-    int imgW = jpeg.getWidth();
-    int imgH = jpeg.getHeight();
+    int imgW = jpeg->getWidth();
+    int imgH = jpeg->getHeight();
+
+    Serial.printf("[PhotoBooth] JPEG open OK, %dx%d, stack HWM=%u words, heap=%u\n",
+                  imgW, imgH, (unsigned)uxTaskGetStackHighWaterMark(NULL),
+                  (unsigned)ESP.getFreeHeap());
 
     // Pick the largest JPEGDEC scale that still fits in 240×240
     // int options = JPEG_SCALE_FULL;   // 0 = 1:1
@@ -204,11 +243,24 @@ void PhotoBooth::drawPhoto(int index) {
     int x = max(0, (240 - scaledW) / 2);
     int y = max(0, (240 - scaledH) / 2);
 
-    jpeg.decode(x, y, options);
-    jpeg.close();
+    esp_task_wdt_reset();
+    delay(0);
+    int decodeOk = jpeg->decode(x, y, options);
+    jpeg->close();
+    delete jpeg;
+    jpeg = nullptr;
+    _jpegTft = nullptr;
+    esp_task_wdt_reset();
+    delay(0);
 
     free(imgBuf);
     imgBuf = nullptr;
+
+    Serial.printf("[PhotoBooth] JPEG decode done, ok=%d, stack HWM=%u words, heap=%u\n",
+                  decodeOk, (unsigned)uxTaskGetStackHighWaterMark(NULL),
+                  (unsigned)ESP.getFreeHeap());
+
+    if (!decodeOk) return;
 
     // ── Step 4: subtle overlay badge ────────────────────────────────────────
     // Thin strip at the very bottom so the image isn't fully hidden

@@ -23,8 +23,8 @@ extern String apiKey;
 extern String timezone;
 extern String ntpServer;
 extern String deviceName;
-extern String photoData1;
-extern String photoData2;
+// extern String photoData1;
+// extern String photoData2;
 extern unsigned long photoBoothInterval;
 extern bool setupCompleted;
 
@@ -33,6 +33,7 @@ void load();
 void save();
 bool hasWifiConfig();
 bool hasLocationConfig();
+// Photos are stored in SPIFFS (NOT Preferences/NVS) to avoid ESP32 resets.
 bool hasPhotos();
 String getCityForApi();
 String inferTimezone(const String& cityName, const String& country);
