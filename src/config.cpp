@@ -1,4 +1,5 @@
 #include "config.h"
+#include <esp_task_wdt.h>
 
 namespace Config {
 
@@ -63,21 +64,91 @@ void load() {
     if (deviceName.isEmpty()) deviceName = DEFAULT_DEVICE_NAME;
 }
 
+// void save() {
+//     refreshTimezoneFromLocation();
+
+//     prefs.begin(PREF_NAMESPACE, false);
+    
+//     prefs.putString("ssid", wifiSsid);
+//     esp_task_wdt_reset();
+//     delay(50);
+    
+//     prefs.putString("pass", wifiPass);
+//     esp_task_wdt_reset();
+//     delay(50);
+    
+//     prefs.putString("city", city);
+//     prefs.putString("country", countryCode);
+//     prefs.putString("tz", timezone);
+//     prefs.putString("name", deviceName);
+//     esp_task_wdt_reset();
+//     delay(50);
+    
+//     // Save photo data with extra watchdog feeding and delays
+//     if (!photoData1.isEmpty()) {
+//         Serial.println("Saving photo1 (" + String(photoData1.length()) + " bytes)...");
+//         esp_task_wdt_reset();
+//         delay(100);
+//         prefs.putString("photo1", photoData1);
+//         esp_task_wdt_reset();
+//         delay(100);
+//         Serial.println("Photo1 saved");
+//     }
+    
+//     if (!photoData2.isEmpty()) {
+//         Serial.println("Saving photo2 (" + String(photoData2.length()) + " bytes)...");
+//         esp_task_wdt_reset();
+//         delay(100);
+//         prefs.putString("photo2", photoData2);
+//         esp_task_wdt_reset();
+//         delay(100);
+//         Serial.println("Photo2 saved");
+//     }
+    
+//     prefs.putULong("pbInterval", photoBoothInterval);
+//     prefs.putBool("setupDone", setupCompleted);
+//     esp_task_wdt_reset();
+//     delay(50);
+    
+//     Serial.println("Closing preferences...");
+//     prefs.end();
+//     esp_task_wdt_reset();
+// }
+
 void save() {
     refreshTimezoneFromLocation();
 
     prefs.begin(PREF_NAMESPACE, false);
+    
+    // 1. SAVE CRITICAL DATA FIRST
     prefs.putString("ssid", wifiSsid);
     prefs.putString("pass", wifiPass);
     prefs.putString("city", city);
     prefs.putString("country", countryCode);
     prefs.putString("tz", timezone);
     prefs.putString("name", deviceName);
-    prefs.putString("photo1", photoData1);
-    prefs.putString("photo2", photoData2);
     prefs.putULong("pbInterval", photoBoothInterval);
-    prefs.putBool("setupDone", setupCompleted);
+    
+    // 2. SAVE THE SETUP FLAG NOW 
+    // Even if photos fail, the device will know setup is done!
+    prefs.putBool("setupDone", true); 
+    
+    esp_task_wdt_reset();
+    delay(100);
+
+    // 3. TRY TO SAVE PHOTOS (This might still fail if images are too large)
+    if (!photoData1.isEmpty() && photoData1.length() < 4000) {
+        prefs.putString("photo1", photoData1);
+    } else if (photoData1.length() >= 4000) {
+        Serial.println("ERROR: Photo 1 too large for NVS!");
+    }
+    
+    if (!photoData2.isEmpty() && photoData2.length() < 4000) {
+        prefs.putString("photo2", photoData2);
+    }
+
     prefs.end();
+    Serial.println("Configuration Saved!");
 }
 
 bool hasWifiConfig() {

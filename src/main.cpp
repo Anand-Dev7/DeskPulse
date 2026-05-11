@@ -2,6 +2,7 @@
 #include <Adafruit_ST7789.h>
 #include <WiFi.h>
 #include <time.h>
+#include <esp_task_wdt.h>
 #include "clock.h"
 #include "weather.h"
 #include "menu.h"
@@ -19,6 +20,15 @@
 #define TFT_SCLK  4
 #define TOUCH_PIN 3   //Touch
 #define TFT_BL    5   // Backlight PWM pin (set to -1 if your display BL is not connected)
+
+// --- Captive Portal Reboot Flags ---
+bool shouldReboot = false;
+unsigned long rebootTime = 0;
+
+// Add these as global variables in main.cpp
+bool isPhotoMode = false;
+bool lockToggle = false; 
+unsigned long touchStartTime = 0;
 
 const unsigned long TOUCH_LONG_PRESS_MS = 800;
 const unsigned long BRIGHTNESS_POPUP_MS = 5000;
@@ -46,14 +56,49 @@ ForecastDay forecastDays[3];
 bool forecastValid = false;
 bool brightnessAdjustMode = false;
 
+void reloadPhotosFromConfig() {
+  // Reload photo data from config into PhotoBooth
+  PhotoData photo1, photo2;
+  photo1.base64Data = Config::photoData1;
+  photo1.valid = !Config::photoData1.isEmpty();
+  photo2.base64Data = Config::photoData2;
+  photo2.valid = !Config::photoData2.isEmpty();
+  photoBooth.setPhotos(photo1, photo2);
+  photoBooth.setInterval(Config::photoBoothInterval);
+}
+
 void startSetupPortalUntilSaved() {
   SetupPortal portal(tft);
   portal.begin();
-  while (!portal.isCompleted()) {
+  unsigned long completedTime = 0;
+  const unsigned long COMPLETION_WAIT_MS = 5000;  // Wait 5 seconds for browser to fully process
+  
+  while (true) {
     portal.loop();
+    
+    // Feed the watchdog to prevent timeout
+    esp_task_wdt_reset();
+    
+    if (portal.isCompleted() && completedTime == 0) {
+      // Mark the time when completion was first detected
+      completedTime = millis();
+      Serial.println("Configuration saved, waiting before closing portal...");
+    }
+    
+    if (completedTime > 0 && (millis() - completedTime >= COMPLETION_WAIT_MS)) {
+      // 5 seconds have passed, safe to close now
+      break;
+    }
+    
     delay(10);
   }
+  
+  // Gentle shutdown with minimal delay
+  delay(500);
   portal.stop();
+  
+  // Reload photos from config after portal closes
+  reloadPhotosFromConfig();
 }
 
 bool connectConfiguredWiFi() {
@@ -70,6 +115,7 @@ bool connectConfiguredWiFi() {
   while (WiFi.status() != WL_CONNECTED && attempts < 40) {
     delay(500);
     attempts++;
+    esp_task_wdt_reset();  // Feed watchdog during WiFi connection wait
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -214,6 +260,36 @@ void loop() {
   static bool aboutDrawn = false;
   static bool popupNeedsRedraw = true;
 
+  struct tm timeinfo;
+
+  // 1. CUSTOM MANUAL TOUCH LOGIC (PhotoBooth 3-sec toggle)
+  int touchValue = digitalRead(TOUCH_PIN); 
+
+  if (touchValue == HIGH) { 
+    if (touchStartTime == 0) touchStartTime = millis();
+    
+    // Check if held for 3 seconds
+    if (millis() - touchStartTime > 3000 && !lockToggle) {
+      lockToggle = true; 
+
+      // TOGGLE LOGIC: Switch between Clock and PhotoBooth
+      if (currentView != VIEW_PHOTOBOOTH) {
+          Serial.println("Switching to Photo Mode");
+          currentView = VIEW_PHOTOBOOTH;
+          photoBooth.begin(); 
+      } else {
+          Serial.println("Returning to Clock Mode");
+          currentView = VIEW_CLOCK;
+          photoBooth.stop();  
+          gmClock.begin();    
+      }
+    }
+  } else {
+    touchStartTime = 0;
+    lockToggle = false; 
+  }
+
+  // 2. STANDARD TOUCH EVENT PROCESSING (Read touches FIRST)
   TouchEvent touchEvent = readTouchEvent(TOUCH_PIN, false, TOUCH_LONG_PRESS_MS);
 
   if (brightnessAdjustMode) {
@@ -222,7 +298,6 @@ void loop() {
       forceViewRedraw = true;
       popupNeedsRedraw = true;
     } else if (touchEvent == TOUCH_EVENT_LONG_TAP) {
-      // Long tap: close brightness adjustment and open menu
       brightnessAdjustMode = false;
       brightnessPopupUntil = 0;
       menuOpen();
@@ -236,25 +311,33 @@ void loop() {
       forceViewRedraw = true;
       popupNeedsRedraw = true;
     }
+  } 
+  else if (currentView == VIEW_PHOTOBOOTH) {
+    // If in Photobooth, any tap exits back to clock
+    if (touchEvent == TOUCH_EVENT_SHORT_TAP || touchEvent == TOUCH_EVENT_LONG_TAP) {
+      currentView = VIEW_CLOCK;
+      photoBooth.stop();
+      gmClock.begin();
+      forceViewRedraw = true;
+    }
   }
-
-  if (!brightnessAdjustMode && !menuIsOpen()) {
+  else if (!menuIsOpen()) {
+    // Standard touches when menu is CLOSED
     if (touchEvent == TOUCH_EVENT_SHORT_TAP) {
       menuOpen();
       forceMenuRedraw = true;
     } else if (touchEvent == TOUCH_EVENT_LONG_TAP && currentView == VIEW_CLOCK) {
-      // Long tap on clock: open photo booth
       currentView = VIEW_PHOTOBOOTH;
       photoBooth.begin();
       forceViewRedraw = true;
     }
-  } else if (!brightnessAdjustMode) {
+  } 
+  else {
+    // Menu is OPEN - Handle Menu Toggles
     if (touchEvent == TOUCH_EVENT_SHORT_TAP) {
-      // Short tap: move to next menu option.
       menuHandleSingleTap();
       forceMenuRedraw = true;
     } else if (touchEvent == TOUCH_EVENT_LONG_TAP) {
-      // Long tap: run selected menu action.
       MenuAction action = menuHandleLongTap();
       switch (action) {
         case MENU_ACTION_SWITCH_CLOCK:
@@ -296,6 +379,11 @@ void loop() {
           forceViewRedraw = true;
           popupNeedsRedraw = true;
           break;
+        case MENU_ACTION_RECONFIGURE_WIFI:
+          menuClose();
+          startSetupPortalUntilSaved();
+          forceViewRedraw = true;
+          break;
         case MENU_ACTION_ABOUT:
           currentView = VIEW_ABOUT;
           menuClose();
@@ -315,6 +403,9 @@ void loop() {
     }
   }
 
+  // 3. DRAWING & VIEW MANAGEMENT (Now it's safe to return early)
+  
+  // -- Menu View --
   if (menuIsOpen()) {
     int wifiStatus = WiFi.status();
     if (!menuPreviouslyOpen || wifiStatus != lastMenuWifiStatus || forceMenuRedraw) {
@@ -334,8 +425,8 @@ void loop() {
     forceViewRedraw = true;
   }
 
+  // -- Brightness Overlay (when open) --
   if (brightnessAdjustMode && currentView == VIEW_CLOCK) {
-    // Keep the base clock frame stable while adjusting brightness.
     if (forceViewRedraw) {
       gmClock.begin();
       forceViewRedraw = false;
@@ -349,29 +440,20 @@ void loop() {
     return;
   }
 
+  // -- Photobooth View --
   if (currentView == VIEW_PHOTOBOOTH) {
-    // Handle touch events in photo booth
-    if (touchEvent == TOUCH_EVENT_SHORT_TAP || touchEvent == TOUCH_EVENT_LONG_TAP) {
-      // Any touch exits photo booth
-      currentView = VIEW_CLOCK;
-      photoBooth.stop();
-      gmClock.begin();
-      forceViewRedraw = true;
-    } else {
-      // Update photo booth slideshow
-      photoBooth.update();
-    }
+    photoBooth.update(); 
     delay(20);
     return;
   }
 
+  // -- Weather Forecast View --
   if (currentView == VIEW_WEATHER) {
     if (!weatherDrawn) {
       forceViewRedraw = true;
       weatherDrawn = true;
       aboutDrawn = false;
     }
-
     if (refreshForecastIfNeeded(false)) {
       forceViewRedraw = true;
     }
@@ -380,32 +462,30 @@ void loop() {
       forceViewRedraw = false;
       popupNeedsRedraw = true;
     }
-    // No brightness popup on weather view
     delay(20);
-    return;
+    return; 
   }
 
+  // -- About View --
   if (currentView == VIEW_ABOUT) {
     if (!aboutDrawn) {
       forceViewRedraw = true;
       aboutDrawn = true;
       weatherDrawn = false;
     }
-
     if (forceViewRedraw) {
       drawAboutPage(tft);
       forceViewRedraw = false;
       popupNeedsRedraw = true;
     }
-    // No brightness popup on about view
     delay(20);
     return;
   }
 
+  // -- DEFAULT VIEW: CLOCK --
   weatherDrawn = false;
   aboutDrawn = false;
 
-  struct tm timeinfo;
   if (getLocalTime(&timeinfo)) {
     gmClock.setTime(timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
     gmClock.setDate(timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900, timeinfo.tm_wday);
@@ -418,6 +498,7 @@ void loop() {
     lastWeatherUpdate = millis();
   }
 
+  // Fading brightness popup after closing brightness mode
   if (brightnessAdjustMode || millis() < brightnessPopupUntil) {
     if (popupNeedsRedraw) {
       drawBrightnessPopup(tft, brightnessLevel);

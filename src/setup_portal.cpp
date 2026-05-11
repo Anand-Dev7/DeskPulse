@@ -74,7 +74,15 @@ button.secondary { margin-top:10px; background:#2c4d78; color:#d6e7ff; }
 <input name="name" placeholder="DeskBuddy" />
 
 <h2>Photo Booth</h2>
-<small>Upload up to 2 photos for the slideshow (JPEG/PNG, max 200x200px)</small>
+<small>Upload up to 2 photos for the slideshow (JPEG/PNG only)</small>
+<div style="margin:12px 0; padding:12px; background:#0f1b31; border:1px solid #355a8f; border-radius:8px; font-size:12px; line-height:1.6;">
+  <strong>Image Requirements:</strong><br/>
+  ✓ Format: JPG or PNG<br/>
+  ✓ Original size: Any resolution, recommended 300x300px or smaller<br/>
+  ✓ File size: Max 200KB (will be compressed)<br/>
+  ✓ Output: Auto-resized to 200x200px, compressed for device storage<br/>
+  <em style="color:#98b5db;">Tip: Use JPG format and smaller original images for best results</em>
+</div>
 
 <div class="photo-section">
 <label>Photo 1</label>
@@ -110,21 +118,100 @@ function useSelectedSsid(){
 function previewImage(fileInput, previewId) {
   const file = fileInput.files[0];
   if (!file) return;
+  
+  const sizeKB = (file.size / 1024).toFixed(1);
+  
+  // Check file size - warn if too large
+  if (file.size > 200000) {
+    alert('⚠️ File too large! (' + sizeKB + 'KB)\n\nMax 200KB. Please use:\n• Smaller image\n• JPG format (better compression)\n• Lower resolution');
+    fileInput.value = '';
+    return;
+  }
+  
   const reader = new FileReader();
   reader.onload = function(e) {
     const preview = document.getElementById(previewId);
-    preview.innerHTML = '<img src="' + e.target.result + '" />';
+    
+    // Show image preview
+    let html = '<img src="' + e.target.result + '" />';
+    
+    // Add size info below preview
+    const previewParent = preview.parentElement;
+    let sizeInfo = previewParent.querySelector('.size-info');
+    if (!sizeInfo) {
+      sizeInfo = document.createElement('div');
+      sizeInfo.className = 'size-info';
+      sizeInfo.style.cssText = 'font-size:11px;color:#98b5db;margin-top:6px;';
+      preview.parentElement.appendChild(sizeInfo);
+    }
+    
+    let sizeHtml = 'Original: ' + sizeKB + 'KB → ';
+    if (file.size < 50000) {
+      sizeHtml += '✓ Will compress well';
+    } else if (file.size < 150000) {
+      sizeHtml += '✓ OK (will be compressed)';
+    } else {
+      sizeHtml += '⚠️ Large (test compression)';
+    }
+    sizeInfo.innerHTML = sizeHtml;
+    
+    preview.innerHTML = html;
   };
   reader.readAsDataURL(file);
 }
 
-function fileToBase64(file, callback) {
+function compressAndEncode(file, callback) {
+  // Create image element to resize
   const reader = new FileReader();
   reader.onload = function(e) {
-    const base64 = e.target.result.split(',')[1];
-    callback(base64);
+    const img = new Image();
+    img.onload = function() {
+      // Resize to max 200x200
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+      
+      const maxSize = 200;
+      if (width > height) {
+        if (width > maxSize) {
+          height *= maxSize / width;
+          width = maxSize;
+        }
+      } else {
+        if (height > maxSize) {
+          width *= maxSize / height;
+          height = maxSize;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Convert to JPEG with compression
+      const compressed = canvas.toDataURL('image/jpeg', 0.7);
+      const base64 = compressed.split(',')[1];
+      
+      // Check compressed size
+      const sizeInBytes = base64.length * 0.75; // Rough estimate
+      const sizeKB = (sizeInBytes / 1024).toFixed(1);
+      
+      if (sizeInBytes > 60000) {
+        alert('⚠️ Compressed size: ' + sizeKB + 'KB (still too large)\n\nPlease try:\n• Use JPG format instead of PNG\n• Lower resolution original image\n• Smaller dimensions (under 300x300px)\n• Compress before upload (use online tool)');
+        callback(null);
+      } else {
+        console.log('Image compressed to ' + sizeKB + 'KB');
+        callback(base64);
+      }
+    };
+    img.onerror = function() {
+      alert('Failed to load image. Please use a valid JPG or PNG file.');
+      callback(null);
+    };
+    img.src = e.target.result;
   };
-  if (file) reader.readAsDataURL(file);
+  reader.readAsDataURL(file);
 }
 
 document.getElementById('file1').addEventListener('change', function() {
@@ -138,38 +225,60 @@ document.getElementById('file2').addEventListener('change', function() {
 document.getElementById('setupForm').addEventListener('submit', async function(e) {
   e.preventDefault();
   
-  // Convert files to base64 before submission
+  // Show loading state
+  const submitBtn = document.querySelector('button[type="submit"]');
+  const originalText = submitBtn.textContent;
+  submitBtn.textContent = 'Processing...';
+  submitBtn.disabled = true;
+  
+  // Convert files to compressed base64 before submission
   const file1 = document.getElementById('file1').files[0];
   const file2 = document.getElementById('file2').files[0];
   
   let completed = 0;
+  let failed = false;
+  
+  const checkSubmit = function() {
+    if (completed === expectedCount) {
+      if (!failed) {
+        document.getElementById('setupForm').submit();
+      } else {
+        submitBtn.textContent = originalText;
+        submitBtn.disabled = false;
+      }
+    }
+  };
+  
+  const expectedCount = (file1 ? 1 : 0) + (file2 ? 1 : 0);
   
   if (file1) {
-    fileToBase64(file1, function(base64) {
-      document.getElementById('photo1Data').value = base64;
-      completed++;
-      if (completed === (file1 ? 1 : 0) + (file2 ? 1 : 0)) {
-        document.getElementById('setupForm').submit();
+    compressAndEncode(file1, function(base64) {
+      if (base64) {
+        document.getElementById('photo1Data').value = base64;
+      } else {
+        failed = true;
       }
+      completed++;
+      checkSubmit();
     });
   } else {
     completed++;
+    checkSubmit();
   }
   
   if (file2) {
-    fileToBase64(file2, function(base64) {
-      document.getElementById('photo2Data').value = base64;
-      completed++;
-      if (completed === (file1 ? 1 : 0) + (file2 ? 1 : 0)) {
-        document.getElementById('setupForm').submit();
+    compressAndEncode(file2, function(base64) {
+      if (base64) {
+        document.getElementById('photo2Data').value = base64;
+      } else {
+        failed = true;
       }
+      completed++;
+      checkSubmit();
     });
   } else {
     completed++;
-  }
-  
-  if (!file1 && !file2) {
-    document.getElementById('setupForm').submit();
+    checkSubmit();
   }
 });
 
@@ -270,6 +379,17 @@ void SetupPortal::begin() {
         String photo1Base64 = gServer.arg("photo1Data");
         String photo2Base64 = gServer.arg("photo2Data");
 
+        // Limit photo data size to prevent flash overflow (max 30KB each after compression)
+        const int MAX_PHOTO_SIZE = 30000;
+        if (photo1Base64.length() > MAX_PHOTO_SIZE) {
+            Serial.println("Photo 1 too large (" + String(photo1Base64.length()) + " bytes), rejected");
+            photo1Base64 = "";  // Discard too-large image
+        }
+        if (photo2Base64.length() > MAX_PHOTO_SIZE) {
+            Serial.println("Photo 2 too large (" + String(photo2Base64.length()) + " bytes), rejected");
+            photo2Base64 = "";  // Discard too-large image
+        }
+
         if (!city.isEmpty()) Config::city = city;
         if (!country.isEmpty()) Config::countryCode = country;
         Config::refreshTimezoneFromLocation();
@@ -293,12 +413,57 @@ void SetupPortal::begin() {
             Serial.println("Photo 2 saved: " + String(Config::photoData2.length()) + " bytes");
         }
         
+        // Save config with watchdog feeding to prevent timeout
+        Serial.println("Saving configuration to flash...");
         Config::save();
+        Serial.println("Configuration saved successfully");
 
-        gServer.send(200, "text/html",
-            "<html><body style='font-family:sans-serif;background:#0a111f;color:#e8f0ff;text-align:center;padding-top:60px;'>"
-            "<h2>Configuration Saved!</h2><p>Device is connecting...</p></body></html>");
+        // Send response with success page and countdown
+        String successHtml = 
+            "<html><head><title>DeskBuddy Setup</title>"
+            "<meta http-equiv='cache-control' content='no-cache'/>"
+            "<meta http-equiv='pragma' content='no-cache'/>"
+            "<meta http-equiv='expires' content='0'/>"
+            "<style>"
+            "body{font-family:'Segoe UI',sans-serif;background:#0a111f;color:#e8f0ff;margin:0;padding:0;"
+            "display:flex;align-items:center;justify-content:center;min-height:100vh;}"
+            ".success-card{background:#121f36;border:2px solid #38bdf8;border-radius:14px;padding:40px;"
+            "text-align:center;max-width:450px;box-shadow:0 8px 32px rgba(0,0,0,0.3);}"
+            ".checkmark{font-size:60px;color:#10b981;margin:20px 0;display:inline-block;}"
+            "h1{color:#63d6ff;margin:0 0 16px;font-size:28px;}"
+            "p{color:#98b5db;margin:12px 0;line-height:1.6;}"
+            ".info-text{font-size:13px;margin-top:25px;color:#98b5db;}"
+            ".countdown{font-size:16px;margin-top:16px;color:#38bdf8;font-weight:bold;padding:12px;"
+            "background:rgba(56,189,248,0.1);border-radius:8px;border-left:4px solid #38bdf8;}"
+            "small{font-size:11px;color:#6b7b95;display:block;margin-top:12px;}"
+            "</style></head><body>"
+            "<div class='success-card'>"
+            "<div class='checkmark'>✓</div>"
+            "<h1>Configuration Saved!</h1>"
+            "<p>Your settings have been saved successfully.</p>"
+            "<p class='info-text'>DeskBuddy is now initializing and connecting to your WiFi network.</p>"
+            "<div class='countdown'>Closing connection in <span id='timer'>10</span> seconds...</div>"
+            "<small>You can close this page anytime. Device will complete setup automatically.</small>"
+            "</div>"
+            "<script>"
+            "var countdown = 10;"
+            "var timerEl = document.getElementById('timer');"
+            "setInterval(function(){"
+            "countdown--;"
+            "timerEl.textContent = countdown;"
+            "if(countdown <= 0){"
+            "document.body.innerHTML='<div style=\"text-align:center;padding-top:120px;color:#e8f0ff;font-family:sans-serif;\">"
+            "<h2>Setup Complete!</h2><p>DeskBuddy is starting up...</p><p style=\"font-size:12px;color:#6b7b95;margin-top:20px;\">"
+            "Your device will be ready in a few moments.</p></div>';"
+            "}"
+            "}, 1000);"
+            "</script>"
+            "</body></html>";
+        
+        gServer.send(200, "text/html", successHtml);
 
+        // Mark as completed, but add a small delay before actually stopping
+        // This ensures the browser receives the response before connection closes
         gInstance->completed = true;
     });
 

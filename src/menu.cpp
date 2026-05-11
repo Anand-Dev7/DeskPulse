@@ -11,6 +11,7 @@ const char* kMenuItems[] = {
   "Show Weather",
   "WiFi Option",
   "Brightness",
+  "Reconfigure WiFi",
   "About",
   "Exit"
 };
@@ -71,8 +72,10 @@ MenuAction menuHandleLongTap() {
     case 3:
       return MENU_ACTION_BRIGHTNESS_LEVEL;
     case 4:
-      return MENU_ACTION_ABOUT;
+      return MENU_ACTION_RECONFIGURE_WIFI;
     case 5:
+      return MENU_ACTION_ABOUT;
+    case 6:
       return MENU_ACTION_EXIT_TO_CLOCK;
     default:
       return MENU_ACTION_NONE;
