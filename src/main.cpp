@@ -393,10 +393,13 @@ void loop() {
     // Brightness popup stays open until long press closes it.
   } 
   else if (currentView == VIEW_PHOTOBOOTH) {
-    // If in Photobooth, any tap exits back to clock
-    if (touchEvent == TOUCH_EVENT_SHORT_TAP || touchEvent == TOUCH_EVENT_LONG_TAP) {
+    // PhotoBooth opens/closes only with long press. Single tap is ignored.
+    if (touchEvent == TOUCH_EVENT_LONG_TAP) {
       currentView = VIEW_CLOCK;
       photoBooth.stop();
+      menuClose();
+      weatherDrawn = false;
+      aboutDrawn = false;
       gmClock.begin();
       forceViewRedraw = true;
     }
@@ -414,9 +417,12 @@ void loop() {
       static unsigned long lastEnter = 0;
       if (millis() - lastEnter > 1500) {   // ignore repeated triggers for 1.5s
         lastEnter = millis();
+        menuClose();
+        weatherDrawn = false;
+        aboutDrawn = false;
         currentView = VIEW_PHOTOBOOTH;
         photoBooth.begin();
-        forceViewRedraw = true;
+        forceViewRedraw = false;
       }
 
     }
