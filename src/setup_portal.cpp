@@ -15,6 +15,7 @@ namespace {
 
 constexpr const char* kPhoto1Path = "/photo1.b64";
 constexpr const char* kPhoto2Path = "/photo2.b64";
+constexpr const char* kPhoto3Path = "/photo3.b64";
 
 bool writeTextFile(const char* path, const String& data) {
   // Guarantee latest upload replaces older content, even when new file is shorter.
@@ -93,7 +94,7 @@ button.remove-photo { background:#7f1d1d; color:#ffecec; border:1px solid #ef444
 
 <h2>Photo Booth</h2>
 <div class="tip">
-  Upload up to 2 photos for the slideshow (JPEG/PNG only)<br/>
+  Upload up to 3 photos for the slideshow (JPEG/PNG only)<br/>
   Image Requirements:<br/>
   ✓ Format: JPG or PNG<br/>
   ✓ Original size: Any resolution, up to ~6MB<br/>
@@ -120,6 +121,15 @@ button.remove-photo { background:#7f1d1d; color:#ffecec; border:1px solid #ef444
 <input type="hidden" id="photo2Remove" name="photo2Remove" value="0" />
 </div>
 
+<div class="photo-section">
+<label>Photo 3</label>
+<input type="file" id="file3" accept="image/*" />
+<div id="preview3" class="preview"></div>
+<div class="photo-actions"><button type="button" class="remove-photo" onclick="removePhoto(3)">Remove Photo 3</button></div>
+<input type="hidden" id="photo3Data" name="photo3Data" />
+<input type="hidden" id="photo3Remove" name="photo3Remove" value="0" />
+</div>
+
 <label>Slideshow Interval (seconds)</label>
 <input type="number" name="interval" min="1" max="60" value="3" placeholder="3" />
 <small>Time between photo transitions (1-60 seconds)</small>
@@ -142,7 +152,7 @@ function previewImage(fileInput, previewId) {
   const file = fileInput.files[0];
   if (!file) return;
 
-  const slot = fileInput.id === 'file1' ? 1 : 2;
+  const slot = parseInt(fileInput.id.replace('file', ''), 10);
   document.getElementById('photo' + slot + 'Remove').value = '0';
   document.getElementById('photo' + slot + 'Data').value = '';
 
@@ -245,6 +255,10 @@ document.getElementById('file2').addEventListener('change', function() {
   previewImage(this, 'preview2');
 });
 
+document.getElementById('file3').addEventListener('change', function() {
+  previewImage(this, 'preview3');
+});
+
 function encodeFieldValue(value) {
   return encodeURIComponent(value == null ? '' : String(value));
 }
@@ -279,17 +293,20 @@ async function sendConfigPayload(form, submitBtn, originalText) {
 
   const photo1 = fd.get('photo1Data') || '';
   const photo2 = fd.get('photo2Data') || '';
+  const photo3 = fd.get('photo3Data') || '';
   const remove1 = fd.get('photo1Remove') === '1';
   const remove2 = fd.get('photo2Remove') === '1';
+  const remove3 = fd.get('photo3Remove') === '1';
 
   try {
     if (photo1 && !remove1) await uploadPhotoChunks(1, photo1, submitBtn);
     if (photo2 && !remove2) await uploadPhotoChunks(2, photo2, submitBtn);
+    if (photo3 && !remove3) await uploadPhotoChunks(3, photo3, submitBtn);
 
     submitBtn.textContent = 'Saving config...';
     const fields = [
       'ssid', 'pass', 'city', 'country', 'name', 'interval',
-      'photo1Remove', 'photo2Remove'
+      'photo1Remove', 'photo2Remove', 'photo3Remove'
     ];
     const body = fields.map(k => k + '=' + encodeFieldValue(fd.get(k) || '')).join('\n');
 
@@ -321,11 +338,12 @@ document.getElementById('setupForm').addEventListener('submit', async function(e
 
   const file1 = document.getElementById('file1').files[0];
   const file2 = document.getElementById('file2').files[0];
+  const file3 = document.getElementById('file3').files[0];
 
   let completed = 0;
   const checkSubmit = async () => {
     completed++;
-    if (completed >= 2) {
+    if (completed >= 3) {
       await sendConfigPayload(e.target, submitBtn, originalText);
     }
   };
@@ -349,6 +367,16 @@ document.getElementById('setupForm').addEventListener('submit', async function(e
     compressAndEncode(file2, (b64) => {
       if (!b64) { failSubmit(); return; }
       document.getElementById('photo2Data').value = b64;
+      checkSubmit();
+    });
+  } else {
+    checkSubmit();
+  }
+
+  if (file3) {
+    compressAndEncode(file3, (b64) => {
+      if (!b64) { failSubmit(); return; }
+      document.getElementById('photo3Data').value = b64;
       checkSubmit();
     });
   } else {
@@ -478,13 +506,13 @@ void SetupPortal::begin() {
     int total = field("total").toInt();
     String data = field("data");
 
-    if ((slot != 1 && slot != 2) || total <= 0 || seq < 0 || seq >= total || data.isEmpty()) {
+    if ((slot < 1 || slot > 3) || total <= 0 || seq < 0 || seq >= total || data.isEmpty()) {
       Serial.printf("/photoChunk bad request: slot=%d seq=%d total=%d data=%d raw=%d\n", slot, seq, total, data.length(), rawBody.length());
       gServer.send(400, "text/plain", "Bad photo chunk");
       return;
     }
 
-    const char* path = (slot == 1) ? kPhoto1Path : kPhoto2Path;
+    const char* path = (slot == 1) ? kPhoto1Path : (slot == 2 ? kPhoto2Path : kPhoto3Path);
     if (!SPIFFS.begin(true)) {
       gServer.send(500, "text/plain", "SPIFFS mount failed");
       return;
@@ -568,6 +596,7 @@ void SetupPortal::begin() {
     String photo2Base64 = "";
     bool removePhoto1 = field("photo1Remove") == "1";
     bool removePhoto2 = field("photo2Remove") == "1";
+    bool removePhoto3 = field("photo3Remove") == "1";
 
     if (gServer.args() == 0 && rawBody.isEmpty()) {
       Serial.println("/save rejected: empty POST body");
@@ -575,9 +604,9 @@ void SetupPortal::begin() {
       return;
     }
 
-    Serial.printf("Parsed save: ssid=%d city=%d photo1=%d photo2=%d rm1=%d rm2=%d\n",
+    Serial.printf("Parsed save: ssid=%d city=%d photo1=%d photo2=%d rm1=%d rm2=%d rm3=%d\n",
                   ssidArg.length(), city.length(), photo1Base64.length(), photo2Base64.length(),
-                  removePhoto1, removePhoto2);
+                  removePhoto1, removePhoto2, removePhoto3);
 
     // Limit photo data size (base64 chars) to keep RAM + decode time safe
     const int MAX_PHOTO_B64 = 50000;
@@ -621,6 +650,11 @@ void SetupPortal::begin() {
       } else if (!photo2Base64.isEmpty()) {
         bool ok = writeTextFile(kPhoto2Path, photo2Base64);
         Serial.println(String("Photo 2 file save: ") + (ok ? "OK" : "FAIL") + " (" + photo2Base64.length() + " chars)");
+      }
+
+      if (removePhoto3) {
+        bool ok = !SPIFFS.exists(kPhoto3Path) || SPIFFS.remove(kPhoto3Path);
+        Serial.println(String("Photo 3 remove: ") + (ok ? "OK" : "FAIL"));
       }
     }
 

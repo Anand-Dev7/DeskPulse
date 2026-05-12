@@ -65,6 +65,7 @@ PhotoBooth::PhotoBooth(Adafruit_ST7789* display) {
 
     photos[0].valid  = false;
     photos[1].valid  = false;
+    photos[2].valid  = false;
 }
 
 // ===========================================================================
@@ -77,11 +78,14 @@ void PhotoBooth::begin() {
     lastPhotoTime     = millis();
     tft->fillScreen(COLOR_BLACK);
 
-    if (photos[0].valid) {
-        drawPhoto(0);
-    } else if (photos[1].valid) {
-        currentPhotoIndex = 1;
-        drawPhoto(1);
+    int firstValid = -1;
+    for (int i = 0; i < 3; ++i) {
+        if (photos[i].valid) { firstValid = i; break; }
+    }
+
+    if (firstValid >= 0) {
+        currentPhotoIndex = firstValid;
+        drawPhoto(currentPhotoIndex);
     } else {
         drawPlaceholder("No photos uploaded.\n\nGo to menu >\nReconfigure WiFi\nto upload photos.");
     }
@@ -93,19 +97,20 @@ void PhotoBooth::update() {
     unsigned long now = millis();
     if (now - lastPhotoTime < slideInterval) return;
 
-    // Advance to the next valid photo
-    int nextIndex = (currentPhotoIndex + 1) % 2;
-
-    if (!photos[0].valid && !photos[1].valid) {
+    if (!photos[0].valid && !photos[1].valid && !photos[2].valid) {
         drawPlaceholder("No photos!");
         lastPhotoTime = now;
         return;
     }
 
-    // If the next slot is empty but the current one is valid, stay on it
-    if (!photos[nextIndex].valid) {
-        lastPhotoTime = now;
-        return;
+    // Advance to the next valid photo across 3 slots.
+    int nextIndex = currentPhotoIndex;
+    for (int step = 1; step <= 3; ++step) {
+        int candidate = (currentPhotoIndex + step) % 3;
+        if (photos[candidate].valid) {
+            nextIndex = candidate;
+            break;
+        }
     }
 
     currentPhotoIndex = nextIndex;
@@ -116,9 +121,10 @@ void PhotoBooth::update() {
 void PhotoBooth::stop()             { active = false; }
 bool PhotoBooth::isActive() const   { return active; }
 
-void PhotoBooth::setPhotos(const PhotoData& photo1, const PhotoData& photo2) {
+void PhotoBooth::setPhotos(const PhotoData& photo1, const PhotoData& photo2, const PhotoData& photo3) {
     photos[0] = photo1;
     photos[1] = photo2;
+    photos[2] = photo3;
 }
 
 void PhotoBooth::setInterval(unsigned long intervalMs) {
@@ -135,7 +141,7 @@ void PhotoBooth::drawPhoto(int index) {
                   (unsigned)ESP.getFreeHeap());
 
     // ── Guard: valid index and non-empty data ───────────────────────────────
-    if (index < 0 || index >= 2
+    if (index < 0 || index >= 3
             || !photos[index].valid
             || photos[index].base64Data.isEmpty()) {
         drawPlaceholder("No image data");
@@ -269,7 +275,7 @@ void PhotoBooth::drawPhoto(int index) {
     tft->setFont(NULL);
     tft->setTextSize(1);
     char badge[32];
-    snprintf(badge, sizeof(badge), "  Photo %d of 2   %dx%d px",
+    snprintf(badge, sizeof(badge), "  Photo %d of 3   %dx%d px",
              index + 1, imgW, imgH);
     tft->setCursor(0, 228);
     tft->print(badge);

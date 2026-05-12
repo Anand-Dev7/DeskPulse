@@ -83,9 +83,10 @@ void reloadPhotosFromConfig() {
 
 
   
-  PhotoData photo1, photo2;
+  PhotoData photo1, photo2, photo3;
   photo1.valid = false;
   photo2.valid = false;
+  photo3.valid = false;
 
   // SPIFFS is mounted in setup() via SPIFFS.begin(true)
 
@@ -108,10 +109,18 @@ if (!SPIFFS.begin(false)) {
       f2.close();
       Serial.println("Loaded photo2 from SPIFFS: " + String(photo2.base64Data.length()) + " chars");
     }
+
+    File f3 = SPIFFS.open("/photo3.b64", FILE_READ);
+    if (f3) {
+      photo3.base64Data = f3.readString();
+      photo3.valid = !photo3.base64Data.isEmpty();
+      f3.close();
+      Serial.println("Loaded photo3 from SPIFFS: " + String(photo3.base64Data.length()) + " chars");
+    }
   }
 
 
-  photoBooth.setPhotos(photo1, photo2);
+  photoBooth.setPhotos(photo1, photo2, photo3);
   photoBooth.setInterval(Config::photoBoothInterval);
 }
 

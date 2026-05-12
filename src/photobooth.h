@@ -18,12 +18,12 @@ public:
     void stop();
     bool isActive() const;
     
-    void setPhotos(const PhotoData& photo1, const PhotoData& photo2);
+    void setPhotos(const PhotoData& photo1, const PhotoData& photo2, const PhotoData& photo3);
     void setInterval(unsigned long intervalMs);
     
 private:
     Adafruit_ST7789* tft;
-    PhotoData photos[2];
+    PhotoData photos[3];
     unsigned long slideInterval;
     unsigned long lastPhotoTime;
     int currentPhotoIndex;
