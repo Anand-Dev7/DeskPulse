@@ -124,19 +124,26 @@ if (!SPIFFS.begin(false)) {
   photoBooth.setInterval(Config::photoBoothInterval);
 }
 
-void startSetupPortalUntilSaved() {
+bool startSetupPortalUntilSaved(bool allowCancel = false) {
   SetupPortal portal(tft);
   portal.begin();
   unsigned long completedTime = 0;
   const unsigned long COMPLETION_WAIT_MS = 2500;  // Give browser time to receive /save response
+  bool canceled = false;
   
-  Serial.println("Setup portal started; waiting for explicit Save button...");
+  Serial.println(allowCancel ? "Setup portal started; long press touch to cancel..." : "Setup portal started; waiting for explicit Save button...");
 
   while (true) {
     portal.loop();
     esp_task_wdt_reset();
 
-    // IMPORTANT: No idle timeout here. The portal must stay open until /save succeeds.
+    if (allowCancel && readTouchEvent(TOUCH_PIN, false, TOUCH_LONG_PRESS_MS) == TOUCH_EVENT_LONG_TAP) {
+      canceled = true;
+      Serial.println("Setup portal canceled by device long press");
+      break;
+    }
+
+    // IMPORTANT: No idle timeout here. The portal must stay open until /save succeeds or long-press cancels.
     if (portal.isCompleted() && completedTime == 0) {
       completedTime = millis();
       Serial.println("Portal reports saved; closing setup portal shortly...");
@@ -152,10 +159,15 @@ void startSetupPortalUntilSaved() {
   portal.stop();
   delay(300);
   WiFi.mode(WIFI_STA);
-  Serial.println("Setup portal stopped after explicit save; STA mode restored");
+  Serial.println(canceled ? "Setup portal stopped after cancel; STA mode restored" : "Setup portal stopped after explicit save; STA mode restored");
   
-  Config::load();
-  reloadPhotosFromConfig();
+  if (!canceled && completedTime > 0) {
+    Config::load();
+    reloadPhotosFromConfig();
+    return true;
+  }
+
+  return false;
 }
 
 bool connectConfiguredWiFi() {
@@ -325,7 +337,6 @@ void reverseBrightnessLevel() {
 
 void loop() {
   static bool menuPreviouslyOpen = false;
-  static int lastMenuWifiStatus = -1;
   static bool forceMenuRedraw = false;
   static bool forceViewRedraw = false;
   static bool weatherDrawn = false;
@@ -379,12 +390,7 @@ void loop() {
       forceViewRedraw = false;
       popupNeedsRedraw = false;
     }
-
-    if (millis() > brightnessPopupUntil) {
-      brightnessAdjustMode = false;
-      forceViewRedraw = true;
-      popupNeedsRedraw = true;
-    }
+    // Brightness popup stays open until long press closes it.
   } 
   else if (currentView == VIEW_PHOTOBOOTH) {
     // If in Photobooth, any tap exits back to clock
@@ -436,36 +442,27 @@ void loop() {
           refreshForecastIfNeeded(true);
           forceViewRedraw = true;
           break;
-        case MENU_ACTION_WIFI_OPTION:
-          if (WiFi.status() == WL_CONNECTED) {
-            WiFi.disconnect(true, true);
-            WiFi.mode(WIFI_OFF);
-            menuSetWifiEnabled(false);
-          } else {
-            if (!Config::hasWifiConfig() || !Config::hasLocationConfig()) {
-              startSetupPortalUntilSaved();
-              Config::load();
-            }
-            connectConfiguredWiFi();
-            syncTimeFromConfig();
-            weatherApi.configure(Config::apiKey, Config::city, Config::countryCode);
-            updateWeather(weatherApi, gmClock);
-            refreshForecastIfNeeded(true);
-            menuSetWifiEnabled(WiFi.status() == WL_CONNECTED);
-          }
-          forceMenuRedraw = true;
-          break;
         case MENU_ACTION_BRIGHTNESS_LEVEL:
-          menuClose();
+          // Keep the menu open and draw the brightness popup on top of it.
           brightnessAdjustMode = true;
-          brightnessPopupUntil = millis() + BRIGHTNESS_POPUP_MS;
-          forceViewRedraw = true;
+          brightnessPopupUntil = 0;
+          forceMenuRedraw = true;
+          forceViewRedraw = false;
           popupNeedsRedraw = true;
           break;
         case MENU_ACTION_RECONFIGURE_WIFI:
           menuClose();
-          startSetupPortalUntilSaved();
-          forceViewRedraw = true;
+          {
+            bool saved = startSetupPortalUntilSaved(true);
+            if (saved) {
+              Config::load();
+            }
+          }
+          // Return to menu options whether the portal was saved or canceled.
+          menuOpen();
+          menuPreviouslyOpen = false;
+          forceMenuRedraw = true;
+          forceViewRedraw = false;
           break;
         case MENU_ACTION_ABOUT:
           currentView = VIEW_ABOUT;
@@ -489,12 +486,25 @@ void loop() {
   // 3. DRAWING & VIEW MANAGEMENT (Now it's safe to return early)
   
   // -- Menu View --
-  if (menuIsOpen()) {
-    int wifiStatus = WiFi.status();
-    if (!menuPreviouslyOpen || wifiStatus != lastMenuWifiStatus || forceMenuRedraw) {
-      menuSetWifiEnabled(wifiStatus == WL_CONNECTED);
+  if (brightnessAdjustMode) {
+    if (!menuIsOpen()) {
+      menuOpen();
+      forceMenuRedraw = true;
+    }
+    if (!menuPreviouslyOpen || forceMenuRedraw || popupNeedsRedraw) {
       menuDraw(tft);
-      lastMenuWifiStatus = wifiStatus;
+      drawBrightnessPopup(tft, brightnessLevel);
+      menuPreviouslyOpen = true;
+      forceMenuRedraw = false;
+      popupNeedsRedraw = false;
+    }
+    delay(20);
+    return;
+  }
+
+  if (menuIsOpen()) {
+    if (!menuPreviouslyOpen || forceMenuRedraw) {
+      menuDraw(tft);
       menuPreviouslyOpen = true;
       forceMenuRedraw = false;
     }
@@ -504,24 +514,9 @@ void loop() {
 
   if (menuPreviouslyOpen) {
     menuPreviouslyOpen = false;
-    lastMenuWifiStatus = -1;
     forceViewRedraw = true;
   }
 
-  // -- Brightness Overlay (when open) --
-  if (brightnessAdjustMode && currentView == VIEW_CLOCK) {
-    if (forceViewRedraw) {
-      gmClock.begin();
-      forceViewRedraw = false;
-      popupNeedsRedraw = true;
-    }
-    if (popupNeedsRedraw) {
-      drawBrightnessPopup(tft, brightnessLevel);
-      popupNeedsRedraw = false;
-    }
-    delay(20);
-    return;
-  }
 
   // -- Photobooth View --
   if (currentView == VIEW_PHOTOBOOTH) {
@@ -581,13 +576,6 @@ void loop() {
     lastWeatherUpdate = millis();
   }
 
-  // Fading brightness popup after closing brightness mode
-  if (brightnessAdjustMode || millis() < brightnessPopupUntil) {
-    if (popupNeedsRedraw) {
-      drawBrightnessPopup(tft, brightnessLevel);
-      popupNeedsRedraw = false;
-    }
-  }
 
   delay(20);
 }

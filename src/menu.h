@@ -8,7 +8,6 @@ enum MenuAction {
   MENU_ACTION_NONE = 0,
   MENU_ACTION_SWITCH_CLOCK,
   MENU_ACTION_WEATHER_FORECAST,
-  MENU_ACTION_WIFI_OPTION,
   MENU_ACTION_BRIGHTNESS_LEVEL,
   MENU_ACTION_ABOUT,
   MENU_ACTION_RECONFIGURE_WIFI,
@@ -19,7 +18,7 @@ void menuInit();
 bool menuIsOpen();
 void menuOpen();
 void menuClose();
-void menuSetWifiEnabled(bool enabled);
+void menuInvalidate();
 void menuHandleSingleTap();
 MenuAction menuHandleLongTap();
 void menuDraw(Adafruit_GFX& display);

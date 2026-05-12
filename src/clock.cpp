@@ -427,30 +427,19 @@ void DeskPulseClock::simpleClock(bool forceRedraw) {
 
 void DeskPulseClock::smartClock(bool forceRedraw) {
     static int lastHour = -1, lastMinute = -1, lastDay = -1;
-    bool fullRedraw = forceRedraw || hour != lastHour || minute != lastMinute || day != lastDay || weatherUpdated;
+    bool layoutRedraw = forceRedraw || lastDay < 0 || day != lastDay || weatherUpdated;
+    bool timeChanged = layoutRedraw || hour != lastHour || minute != lastMinute;
 
-    // Only do a full-screen clear/redraw if something major changed
-    if (fullRedraw) {
+    // Full screen only for first draw/date/weather/style changes.
+    // Normal minute changes update only the time band to reduce flicker.
+    if (layoutRedraw) {
         tft->fillScreen(COLOR_BG);
         drawHeader();
         if (weather.valid) {
             drawWeatherIcon(180, 10, weather.icon);
             drawBadge(185, 60, 48, 22, COLOR_WHITE, COLOR_BG, weather.condition.c_str(), 2);
         }
-        // --- TIME (HH:MM) ---
-        u8g2Fonts.setFontMode(1);
-        u8g2Fonts.setFontDirection(0);
-        u8g2Fonts.setBackgroundColor(COLOR_BG);
-        u8g2Fonts.setFont(u8g2_font_logisoso42_tn);
-        char timeStr[6];
-        sprintf(timeStr, "%02d:%02d", hour, minute);
-        int timeWidth = u8g2Fonts.getUTF8Width(timeStr);
-        int timeX = 16;
-        int timeY = 90;
-        u8g2Fonts.setForegroundColor(COLOR_WHITE);
-        u8g2Fonts.setCursor(timeX, timeY);
-        u8g2Fonts.print(timeStr);
-        // --- DATE & DAY ---
+
         int dateY = 140;
         tft->setTextColor(COLOR_WHITE);
         tft->setTextSize(2);
@@ -459,10 +448,9 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
         tft->setCursor(10, dateY);
         tft->print(dateStr);
         tft->setTextColor(COLOR_YELLOW);
-        tft->setTextSize(2);
         tft->setCursor(145, dateY);
         tft->print(getWeekdayName(weekday));
-        // --- WEATHER DETAILS (Temp, Humidity, Wind) ---
+
         if (weather.valid) {
             drawTemperatureBar(10, 175, weather.temperature);
             drawHumidity(10, 205, weather.humidity);
@@ -475,15 +463,29 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
             tft->print("m/s");
             tft->setFont();
         }
-        lastHour = hour;
-        lastMinute = minute;
-        lastDay = day;
-        weatherUpdated = false;
-        prevSecond = -1; // Force seconds redraw on next update
     }
 
-    // --- SECONDS BOX ONLY ---
-    // Redraw only the seconds box region
+    if (timeChanged) {
+        tft->fillRect(0, 48, 178, 54, COLOR_BG);
+        u8g2Fonts.setFontMode(1);
+        u8g2Fonts.setFontDirection(0);
+        u8g2Fonts.setBackgroundColor(COLOR_BG);
+        u8g2Fonts.setFont(u8g2_font_logisoso42_tn);
+        char hmStr[6];
+        sprintf(hmStr, "%02d:%02d", hour, minute);
+        u8g2Fonts.setForegroundColor(COLOR_WHITE);
+        u8g2Fonts.setCursor(16, 90);
+        u8g2Fonts.print(hmStr);
+        lastHour = hour;
+        lastMinute = minute;
+    }
+
+    if (layoutRedraw) {
+        lastDay = day;
+        weatherUpdated = false;
+        prevSecond = -1;
+    }
+
     u8g2Fonts.setFontMode(1);
     u8g2Fonts.setFontDirection(0);
     u8g2Fonts.setFont(u8g2_font_logisoso42_tn);
@@ -492,17 +494,14 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
     int timeWidth = u8g2Fonts.getUTF8Width(timeStr);
     int timeX = 16;
     int timeY = 90;
-    
-    // Only redraw seconds if it changed or full redraw
-    if (fullRedraw || second != prevSecond) {
+
+    if (layoutRedraw || second != prevSecond) {
         char secStr[3];
         sprintf(secStr, "%02d", second);
         u8g2Fonts.setFont(u8g2_font_logisoso24_tn);
         int secWidth = u8g2Fonts.getUTF8Width(secStr) + 12;
         int secX = timeX + timeWidth + 10;
         int secY = timeY - 32;
-        
-        // Clear only the seconds box area
         tft->fillRoundRect(secX, secY, secWidth, 35, 5, COLOR_BG);
         tft->fillRoundRect(secX, secY, secWidth, 35, 5, COLOR_DARK_BLUE);
         u8g2Fonts.setForegroundColor(COLOR_ORANGE1);
