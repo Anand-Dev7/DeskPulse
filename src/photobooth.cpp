@@ -183,8 +183,6 @@ void PhotoBooth::drawPhoto(int index) {
 
     if (ret != 0 || decodedLen == 0) {
         free(imgBuf);
-        // ret codes: MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL = -0x002A
-        //            MBEDTLS_ERR_BASE64_INVALID_CHARACTER = -0x002C
         char msg[40];
         snprintf(msg, sizeof(msg), "Base64 error\nCode: 0x%04X", -ret);
         drawPlaceholder(msg);
@@ -268,7 +266,7 @@ void PhotoBooth::drawPhoto(int index) {
 
     if (!decodeOk) return;
 
-    // ── Step 4: subtle overlay badge ────────────────────────────────────────
+    // ──────────────── Step 4: subtle overlay badge ──────────────
     // Thin strip at the very bottom so the image isn't fully hidden
     tft->fillRect(0, 226, 240, 14, 0x0000);        // black strip
     tft->setTextColor(COLOR_LIGHT_GRAY);

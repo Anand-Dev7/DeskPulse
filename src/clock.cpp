@@ -123,8 +123,17 @@ void DeskPulseClock::drawHeader() {
         // Calculate width properly (IMPORTANT)
         int cityWidth = u8g2Fonts.getUTF8Width(weather.city.c_str());
 
-        // ---- COUNTRY BADGE ----
-        drawBadge(30 + cityWidth, 2, 48, 28, COLOR_GREEN, COLOR_BG, weather.country.c_str(), 2);
+        // ---- COUNTRY BADGE + WEEKDAY BESIDE IT ----
+        int countryBadgeX = 30 + cityWidth; //30
+        int countryBadgeW = 48;
+        drawBadge(countryBadgeX, 2, countryBadgeW, 28, COLOR_GREEN, COLOR_BG, weather.country.c_str(), 2);
+
+        // Move weekday from date row to beside country badge. Keep existing weekday color.
+        tft->setFont();
+        tft->setTextColor(COLOR_YELLOW);
+        tft->setTextSize(2);
+        tft->setCursor(countryBadgeX + countryBadgeW + 6, 10); //6, 8
+        tft->print(getWeekdayName(weekday));
 
         tft->setFont(&FreeMonoBold9pt7b);
         tft->setTextColor(COLOR_WHITE); 
@@ -338,9 +347,7 @@ void DeskPulseClock::drawDate() {
     sprintf(dateStr, "%02d/%02d/%04d", day, month, year);
     tft->print(dateStr);
     
-    tft->setTextColor(COLOR_YELLOW);
-    tft->setCursor(145, y);
-    tft->print(getWeekdayName(weekday));
+    // Weekday is now drawn in drawHeader() beside the country badge.
 }
 
 void DeskPulseClock::drawThermometerIcon(int x, int y) {
@@ -388,10 +395,10 @@ void DeskPulseClock::drawHumidity(int x, int y, int humidity) {
 void DeskPulseClock::drawWeatherInfo() {
     if (!weather.valid) return;
     
-    tft->fillRoundRect(170, 66, 70, 28, 6, COLOR_WHITE);
-    drawWeatherIcon(185, 10, weather.icon);
+    // Weather icon/condition moved to the right-side empty space above wind data.
+    drawWeatherIcon(166, 150, weather.icon);
     
-    drawBadge(200, 85, 38, 20, COLOR_WHITE, COLOR_BG, weather.condition.c_str(), 2);
+    drawBadge(176, 198, 58, 22, COLOR_WHITE, COLOR_BG, weather.condition.c_str(), 2);
     
     drawTemperatureBar(10, 175, weather.temperature);
     drawHumidity(10, 205, weather.humidity);
@@ -435,11 +442,6 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
     if (layoutRedraw) {
         tft->fillScreen(COLOR_BG);
         drawHeader();
-        if (weather.valid) {
-            drawWeatherIcon(180, 10, weather.icon);
-            drawBadge(185, 60, 48, 22, COLOR_WHITE, COLOR_BG, weather.condition.c_str(), 2);
-        }
-
         int dateY = 140;
         tft->setTextColor(COLOR_WHITE);
         tft->setTextSize(2);
@@ -447,11 +449,11 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
         sprintf(dateStr, "%02d/%02d/%04d", day, month, year);
         tft->setCursor(10, dateY);
         tft->print(dateStr);
-        tft->setTextColor(COLOR_YELLOW);
-        tft->setCursor(145, dateY);
-        tft->print(getWeekdayName(weekday));
-
         if (weather.valid) {
+            // Weather icon/condition moved above wind data on the right side.
+            drawWeatherIcon(162, 120, weather.icon);  //162 left/right  120 up/down
+            drawBadge(160, 175, 90, 22, COLOR_WHITE, COLOR_BG, weather.condition.c_str(), 2); // 176 left/right 198 up/down 58 width, 22 height
+
             drawTemperatureBar(10, 175, weather.temperature);
             drawHumidity(10, 205, weather.humidity);
             tft->setFont(&FreeMonoBold9pt7b);
@@ -466,15 +468,17 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
     }
 
     if (timeChanged) {
-        tft->fillRect(0, 48, 178, 54, COLOR_BG);
+        tft->fillRect(0, 48, 240, 75, COLOR_BG); // need to change for overlaping 
         u8g2Fonts.setFontMode(1);
         u8g2Fonts.setFontDirection(0);
         u8g2Fonts.setBackgroundColor(COLOR_BG);
         u8g2Fonts.setFont(u8g2_font_logisoso42_tn);
+        int displayHour = hour % 12;
+        if (displayHour == 0) displayHour = 12;
         char hmStr[6];
-        sprintf(hmStr, "%02d:%02d", hour, minute);
+        sprintf(hmStr, "%02d:%02d", displayHour, minute);
         u8g2Fonts.setForegroundColor(COLOR_WHITE);
-        u8g2Fonts.setCursor(16, 90);
+        u8g2Fonts.setCursor(16, 105);
         u8g2Fonts.print(hmStr);
         lastHour = hour;
         lastMinute = minute;
@@ -489,11 +493,13 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
     u8g2Fonts.setFontMode(1);
     u8g2Fonts.setFontDirection(0);
     u8g2Fonts.setFont(u8g2_font_logisoso42_tn);
+    int displayHourForSeconds = hour % 12;
+    if (displayHourForSeconds == 0) displayHourForSeconds = 12;
     char timeStr[6];
-    sprintf(timeStr, "%02d:%02d", hour, minute);
+    sprintf(timeStr, "%02d:%02d", displayHourForSeconds, minute);
     int timeWidth = u8g2Fonts.getUTF8Width(timeStr);
     int timeX = 16;
-    int timeY = 90;
+    int timeY = 105;
 
     if (layoutRedraw || second != prevSecond) {
         char secStr[3];
@@ -508,6 +514,21 @@ void DeskPulseClock::smartClock(bool forceRedraw) {
         u8g2Fonts.setBackgroundColor(COLOR_DARK_BLUE);
         u8g2Fonts.setCursor(secX + (secWidth - u8g2Fonts.getUTF8Width(secStr)) / 2, secY + 26);
         u8g2Fonts.print(secStr);
+
+        // AM/PM displayed beside the seconds box.
+        const char* ampmStr = (hour >= 12) ? "PM" : "AM";
+        int ampmX = secX + secWidth + 14; // left/right
+        int ampmY = secY + 6;   // up/down, smaller = more top
+
+        tft->fillRect(ampmX -2, secY - 2, 58, 26, COLOR_BG); //34 35
+        // tft->setFont(&FreeMonoBold9pt7b);
+        tft->setFont();
+        tft->setTextColor(COLOR_ORANGE1);
+        tft->setTextSize(2);
+        tft->setCursor(ampmX, ampmY);
+        tft->print(ampmStr);
+        tft->setFont();
+
         u8g2Fonts.setBackgroundColor(COLOR_BG);
         prevSecond = second;
     }

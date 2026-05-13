@@ -52,45 +52,18 @@ unsigned long lastWeatherUpdate = 0;
 unsigned long lastForecastUpdate = 0;
 unsigned long brightnessPopupUntil = 0;
 BrightnessLevel brightnessLevel = BRIGHTNESS_HIGH;
-const unsigned long WEATHER_UPDATE_INTERVAL = 600000;  // 10 minutes
+const unsigned long WEATHER_UPDATE_INTERVAL = 300000;  // 5 minutes
 ViewMode currentView = VIEW_CLOCK;
 ForecastDay forecastDays[3];
 bool forecastValid = false;
 bool brightnessAdjustMode = false;
 
-// void reloadPhotosFromConfig() {
-//   // Reload photo data from config into PhotoBooth
-//   PhotoData photo1, photo2;
-//   photo1.base64Data = Config::photoData1;
-//   photo1.valid = !Config::photoData1.isEmpty();
-//   photo2.base64Data = Config::photoData2;
-//   photo2.valid = !Config::photoData2.isEmpty();
-//   photoBooth.setPhotos(photo1, photo2);
-//   photoBooth.setInterval(Config::photoBoothInterval);
-// }
-
-void reloadPhotosFromConfig() {
-  // PhotoData photo1, photo2;
-  // Reload photo data from SPIFFS into PhotoBooth (photos are NOT stored in NVS)
-  // File f1 = SPIFFS.open("/photo1.b64", FILE_READ);
-  // if (f1) {
-  //   photo1.base64Data = f1.readString();
-  //   photo1.valid = true;
-  //   f1.close();
-  // } else {
-  //   photo1.valid = false;
-  // }
-
-
-  
+void reloadPhotosFromConfig() {  
   PhotoData photo1, photo2, photo3;
   photo1.valid = false;
   photo2.valid = false;
   photo3.valid = false;
 
-  // SPIFFS is mounted in setup() via SPIFFS.begin(true)
-
-  
 if (!SPIFFS.begin(false)) {
     Serial.println("SPIFFS not mounted; no photos loaded");
   } else {
@@ -118,7 +91,6 @@ if (!SPIFFS.begin(false)) {
       Serial.println("Loaded photo3 from SPIFFS: " + String(photo3.base64Data.length()) + " chars");
     }
   }
-
 
   photoBooth.setPhotos(photo1, photo2, photo3);
   photoBooth.setInterval(Config::photoBoothInterval);
@@ -321,15 +293,6 @@ void reverseBrightnessLevel() {
 
   // Initialize photo booth with saved photos and interval
   reloadPhotosFromConfig();
-  // PhotoData photo1, photo2;
-  // photo1.base64Data = Config::photoData1;
-  // photo1.valid = !Config::photoData1.isEmpty();
-  // photo2.base64Data = Config::photoData2;
-  // photo2.valid = !Config::photoData2.isEmpty();
-  // photoBooth.setPhotos(photo1, photo2);
-  // photoBooth.setInterval(Config::photoBoothInterval);
-
-  // Initialize clock display
   gmClock.begin();
   
   Serial.println("Clock started!");
@@ -410,9 +373,6 @@ void loop() {
       menuOpen();
       forceMenuRedraw = true;
     } else if (touchEvent == TOUCH_EVENT_LONG_TAP && currentView == VIEW_CLOCK) {
-      // currentView = VIEW_PHOTOBOOTH;
-      // photoBooth.begin();
-      // forceViewRedraw = true;
       
       static unsigned long lastEnter = 0;
       if (millis() - lastEnter > 1500) {   // ignore repeated triggers for 1.5s
@@ -490,7 +450,6 @@ void loop() {
   }
 
   // 3. DRAWING & VIEW MANAGEMENT (Now it's safe to return early)
-  
   // -- Menu View --
   if (brightnessAdjustMode) {
     if (!menuIsOpen()) {
@@ -581,7 +540,6 @@ void loop() {
     updateWeather(weatherApi, gmClock);
     lastWeatherUpdate = millis();
   }
-
 
   delay(20);
 }

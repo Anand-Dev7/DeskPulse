@@ -14,7 +14,7 @@ String ntpServer = "";
 String deviceName = "";
 // String photoData1 = "";
 // String photoData2 = "";
-unsigned long photoBoothInterval = 3000;  // Default 3 seconds
+unsigned long photoBoothInterval = 10000;  // Default 3 seconds
 bool setupCompleted = false;
 
 static Preferences prefs;
@@ -54,9 +54,7 @@ void load() {
     countryCode = prefs.getString("country", DEFAULT_COUNTRY);
     timezone = prefs.getString("tz", "");
     deviceName = prefs.getString("name", DEFAULT_DEVICE_NAME);
-    // photoData1 = prefs.getString("photo1", "");
-    // photoData2 = prefs.getString("photo2", "");
-    photoBoothInterval = prefs.getULong("pbInterval", 3000);
+    photoBoothInterval = prefs.getULong("pbInterval", 10000);
     setupCompleted = prefs.getBool("setupDone", false);
     prefs.end();
 
@@ -69,57 +67,6 @@ void load() {
     if (ntpServer.isEmpty()) ntpServer = DEFAULT_NTP_SERVER;
     if (deviceName.isEmpty()) deviceName = DEFAULT_DEVICE_NAME;
 }
-
-// void save() {
-//     refreshTimezoneFromLocation();
-
-//     prefs.begin(PREF_NAMESPACE, false);
-    
-//     prefs.putString("ssid", wifiSsid);
-//     esp_task_wdt_reset();
-//     delay(50);
-    
-//     prefs.putString("pass", wifiPass);
-//     esp_task_wdt_reset();
-//     delay(50);
-    
-//     prefs.putString("city", city);
-//     prefs.putString("country", countryCode);
-//     prefs.putString("tz", timezone);
-//     prefs.putString("name", deviceName);
-//     esp_task_wdt_reset();
-//     delay(50);
-    
-//     // Save photo data with extra watchdog feeding and delays
-//     if (!photoData1.isEmpty()) {
-//         Serial.println("Saving photo1 (" + String(photoData1.length()) + " bytes)...");
-//         esp_task_wdt_reset();
-//         delay(100);
-//         prefs.putString("photo1", photoData1);
-//         esp_task_wdt_reset();
-//         delay(100);
-//         Serial.println("Photo1 saved");
-//     }
-    
-//     if (!photoData2.isEmpty()) {
-//         Serial.println("Saving photo2 (" + String(photoData2.length()) + " bytes)...");
-//         esp_task_wdt_reset();
-//         delay(100);
-//         prefs.putString("photo2", photoData2);
-//         esp_task_wdt_reset();
-//         delay(100);
-//         Serial.println("Photo2 saved");
-//     }
-    
-//     prefs.putULong("pbInterval", photoBoothInterval);
-//     prefs.putBool("setupDone", setupCompleted);
-//     esp_task_wdt_reset();
-//     delay(50);
-    
-//     Serial.println("Closing preferences...");
-//     prefs.end();
-//     esp_task_wdt_reset();
-// }
 
 void save() {
   refreshTimezoneFromLocation();

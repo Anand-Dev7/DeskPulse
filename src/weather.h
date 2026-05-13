@@ -41,7 +41,7 @@ private:
     String _countryCode;
     WeatherData _data;
     unsigned long _lastUpdate;
-    const unsigned long UPDATE_INTERVAL = 600000;  // 10 minutes
+    const unsigned long UPDATE_INTERVAL = 300000;  // 5 minutes
 };
 
 void drawWeatherForecastPage(Adafruit_ST7789& display, const ForecastDay days[3], bool hasData);

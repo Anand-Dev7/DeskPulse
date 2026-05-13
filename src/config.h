@@ -23,8 +23,6 @@ extern String apiKey;
 extern String timezone;
 extern String ntpServer;
 extern String deviceName;
-// extern String photoData1;
-// extern String photoData2;
 extern unsigned long photoBoothInterval;
 extern bool setupCompleted;
 

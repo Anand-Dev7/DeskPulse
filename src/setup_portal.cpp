@@ -62,7 +62,7 @@ button.secondary { background:#1f2f4f; color:#e8f0ff; border:1px solid #355a8f; 
 button.remove-photo { background:#7f1d1d; color:#ffecec; border:1px solid #ef4444; }
 .removed-note { color:#fca5a5; font-size:12px; margin-top:6px; }
 .status { margin-top:16px; color:#98b5db; font-size:12px; text-align:center; }
-.tip { background:#0c162a; border:1px solid #26416d; border-radius:10px; padding:10px; font-size:12px; color:#98b5db; }
+.tip { background:#0c162a; border:1px solid #0aa223; border-radius:10px; padding:10px; font-size:12px; color:#98b5db; }
 </style>
 </head>
 <body>
@@ -88,9 +88,6 @@ button.remove-photo { background:#7f1d1d; color:#ffecec; border:1px solid #ef444
 
 <label>Country Code</label>
 <input type="text" name="country" placeholder="IN / US / GB etc" />
-
-<label>Device Name</label>
-<input type="text" name="name" placeholder="DeskBuddy" />
 
 <h2>Photo Booth</h2>
 <div class="tip">
@@ -131,7 +128,7 @@ button.remove-photo { background:#7f1d1d; color:#ffecec; border:1px solid #ef444
 </div>
 
 <label>Slideshow Interval (seconds)</label>
-<input type="number" name="interval" min="1" max="60" value="3" placeholder="3" />
+<input type="number" name="interval" min="1" max="60" value="10" placeholder="10" />
 <small>Time between photo transitions (1-60 seconds)</small>
 
 <button type="submit">Save Configuration</button>
@@ -305,7 +302,7 @@ async function sendConfigPayload(form, submitBtn, originalText) {
 
     submitBtn.textContent = 'Saving config...';
     const fields = [
-      'ssid', 'pass', 'city', 'country', 'name', 'interval',
+      'ssid', 'pass', 'city', 'country', 'interval',
       'photo1Remove', 'photo2Remove', 'photo3Remove'
     ];
     const body = fields.map(k => k + '=' + encodeFieldValue(fd.get(k) || '')).join('\n');
@@ -588,7 +585,7 @@ void SetupPortal::begin() {
 
     String city = field("city");
     String country = field("country");
-    String name = field("name");
+    // String name = field("name");
     String intervalStr = field("interval");
 
     // Photos are uploaded separately via /photoChunk to avoid WebServer crashes on large POST bodies.
@@ -622,7 +619,7 @@ void SetupPortal::begin() {
     if (!city.isEmpty()) Config::city = city;
     if (!country.isEmpty()) Config::countryCode = country;
     Config::refreshTimezoneFromLocation();
-    if (!name.isEmpty()) Config::deviceName = name;
+    // if (!name.isEmpty()) Config::deviceName = name;
 
     // Parse slideshow interval (convert seconds to milliseconds)
     if (!intervalStr.isEmpty()) {
