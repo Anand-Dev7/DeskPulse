@@ -185,7 +185,7 @@ function compressAndEncode(file, callback) {
       // The display is 240x240. Generate an exact 240x240 JPEG so the ESP32
       // can render at 1:1 without JPEGDEC down-scaling blur.
       const TARGET = 240;
-      const MAX_B64 = 50000; // must match ESP32 /save MAX_PHOTO_B64
+      const MAX_B64 = 65000; // must match ESP32 /save MAX_PHOTO_B64
 
       const canvas = document.createElement('canvas');
       const width = TARGET;
@@ -606,7 +606,7 @@ void SetupPortal::begin() {
                   removePhoto1, removePhoto2, removePhoto3);
 
     // Limit photo data size (base64 chars) to keep RAM + decode time safe
-    const int MAX_PHOTO_B64 = 50000;
+    const int MAX_PHOTO_B64 = 70000;
     if (photo1Base64.length() > MAX_PHOTO_B64) {
       Serial.println("Photo 1 too large (" + String(photo1Base64.length()) + " chars), rejected");
       photo1Base64 = "";
